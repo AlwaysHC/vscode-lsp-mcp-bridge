@@ -1,0 +1,108 @@
+{
+  "name": "vscode-lsp-mcp-bridge",
+  "displayName": "VS Code LSP MCP Bridge",
+  "description": "Expose VS Code language features such as references, definitions, symbols, hover, diagnostics, and call hierarchy to MCP clients.",
+  "version": "0.0.1",
+  "type": "module",
+  "publisher": "your-publisher-name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-name/vscode-lsp-mcp-bridge.git"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "lsp",
+    "roslyn",
+    "codex",
+    "references",
+    "language-server",
+    "vscode"
+  ],
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscode-lsp-mcp-bridge.start",
+        "title": "LSP MCP Bridge: Start Server"
+      },
+      {
+        "command": "vscode-lsp-mcp-bridge.stop",
+        "title": "LSP MCP Bridge: Stop Server"
+      },
+      {
+        "command": "vscode-lsp-mcp-bridge.showStatus",
+        "title": "LSP MCP Bridge: Show Status"
+      },
+      {
+        "command": "vscode-lsp-mcp-bridge.copyCodexConfig",
+        "title": "LSP MCP Bridge: Copy Codex MCP Config"
+      }
+    ],
+    "configuration": {
+      "title": "VS Code LSP MCP Bridge",
+      "properties": {
+        "vscodeLspMcpBridge.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the local bridge server when VS Code finishes startup."
+        },
+        "vscodeLspMcpBridge.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host for the local bridge server. Keep this on localhost."
+        },
+        "vscodeLspMcpBridge.port": {
+          "type": "number",
+          "default": 36521,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Port for the local bridge server."
+        },
+        "vscodeLspMcpBridge.connectionFile": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path for the connection file. Empty uses ~/.vscode-lsp-mcp-bridge/connection.json."
+        },
+        "vscodeLspMcpBridge.enableWriteTools": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable tools that can apply workspace edits, such as rename or formatting. Keep disabled for read-only use."
+        }
+      }
+    }
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "The bridge refuses to start unless the workspace is trusted."
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^3.4.0",
+    "typescript": "^5.8.0"
+  }
+}

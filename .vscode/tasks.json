@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: compile",
+      "type": "shell",
+      "command": "$env:Path = 'C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\MSBuild\\Microsoft\\VisualStudio\\NodeJs;' + $env:Path; & 'C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\MSBuild\\Microsoft\\VisualStudio\\NodeJs\\npm.cmd' run compile",
+      "group": "build",
+      "problemMatcher": "$tsc"
+    }
+  ]
+}
