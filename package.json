@@ -77,6 +77,11 @@
         "command": "vscode-lsp-mcp-bridge.copyClientConfig",
         "title": "LSP MCP Bridge: Copy MCP Client Config",
         "category": "LSP MCP Bridge"
+      },
+      {
+        "command": "vscode-lsp-mcp-bridge.openClientConfig",
+        "title": "LSP MCP Bridge: Open MCP Client Config File",
+        "category": "LSP MCP Bridge"
       }
     ],
     "walkthroughs": [
@@ -94,6 +99,11 @@
             "id": "vscode-lsp-mcp-bridge.copyConfig",
             "title": "Copy an MCP client config",
             "description": "Copy a ready-to-use MCP server configuration for Codex, VS Code/GitHub Copilot, Claude Code, or another HTTP MCP client.\n\n[Copy MCP client config](command:vscode-lsp-mcp-bridge.copyClientConfig)"
+          },
+          {
+            "id": "vscode-lsp-mcp-bridge.openConfigFile",
+            "title": "Open an MCP client config file",
+            "description": "Open a common MCP client configuration file and copy the matching bridge snippet to the clipboard. Missing files are created only after confirmation.\n\n[Open MCP client config file](command:vscode-lsp-mcp-bridge.openClientConfig)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.enableWrites",

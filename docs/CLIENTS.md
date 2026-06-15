@@ -2,6 +2,8 @@
 
 Run `LSP MCP Bridge: Copy MCP Client Config` from the VS Code Command Palette and choose the client you want to configure. The command starts the bridge if needed, then copies a config snippet with the current endpoint and bearer token.
 
+You can also run `LSP MCP Bridge: Open MCP Client Config File`. It opens a common MCP client config file, creates the file only after confirmation when it is missing, and copies the matching bridge snippet to the clipboard. It does not silently edit existing files.
+
 Default endpoint:
 
 ```text
@@ -23,6 +25,23 @@ Use these default locations when you paste the bridge settings manually:
 | Windsurf / Cascade | `~/.codeium/windsurf/mcp_config.json` (`%USERPROFILE%\.codeium\windsurf\mcp_config.json` on Windows) | Windsurf accepts `serverUrl` or `url` for remote HTTP MCPs. |
 | Cline | CLI: `~/.cline/mcp.json`; IDE extension: open Cline's MCP Servers view, then Configure | The IDE extension opens its own MCP settings JSON; add the bridge under `mcpServers`. |
 | Roo Code | Global: `mcp_settings.json` opened by `Edit Global MCP`; project: `<project>/.roo/mcp.json` | Project settings override global settings for matching server names. |
+
+## Files Opened By The Extension
+
+`LSP MCP Bridge: Open MCP Client Config File` can open these common targets:
+
+| Picker option | File opened | Snippet copied |
+| --- | --- | --- |
+| Codex global config | `~/.codex/config.toml` | Codex TOML |
+| VS Code workspace MCP config | `<workspace>/.vscode/mcp.json` | VS Code/GitHub Copilot JSON |
+| Claude Code project config | `<workspace>/.mcp.json` | Generic HTTP MCP JSON |
+| Cursor user config | `~/.cursor/mcp.json` | Generic HTTP MCP JSON |
+| Cursor workspace config | `<workspace>/.cursor/mcp.json` | Generic HTTP MCP JSON |
+| Windsurf user config | `~/.codeium/windsurf/mcp_config.json` | Generic HTTP MCP JSON |
+| Cline user config | `~/.cline/mcp.json` | Generic HTTP MCP JSON |
+| Roo Code workspace config | `<workspace>/.roo/mcp.json` | Generic HTTP MCP JSON |
+
+Some clients expose their own preferred command or UI. For VS Code user-level MCP configuration, `MCP: Open User Configuration` remains the most reliable path because it respects the current VS Code profile. For Claude Code local configuration, the copied `claude mcp add ...` command is usually better than editing `~/.claude.json` by hand.
 
 ## Codex
 

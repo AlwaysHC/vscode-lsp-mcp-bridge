@@ -24,7 +24,8 @@ End users do not need to install Node.js. Node/npm are development-time tools on
 4. Run `LSP MCP Bridge: Show Status` from the Command Palette.
 5. Run `LSP MCP Bridge: Copy MCP Client Config`.
 6. Choose your client: Codex, VS Code/GitHub Copilot, Claude Code, or Generic HTTP MCP Client.
-7. Paste the copied config into that client and restart or reload the client if needed.
+7. Run `LSP MCP Bridge: Open MCP Client Config File` if you want the extension to open a common target config file for you.
+8. Paste the copied config into that client and restart or reload the client if needed.
 
 The bridge starts automatically by default when VS Code finishes startup. You can also use:
 
@@ -32,8 +33,11 @@ The bridge starts automatically by default when VS Code finishes startup. You ca
 - `LSP MCP Bridge: Stop Server`
 - `LSP MCP Bridge: Show Status`
 - `LSP MCP Bridge: Copy MCP Client Config`
+- `LSP MCP Bridge: Open MCP Client Config File`
 
-For client-specific setup, run `LSP MCP Bridge: Copy MCP Client Config` and choose the target client.
+For client-specific setup, run `LSP MCP Bridge: Copy MCP Client Config` and choose the target client. To avoid hunting for common config files, run `LSP MCP Bridge: Open MCP Client Config File`; it opens the selected file, creates missing files only after confirmation, and copies the matching snippet to the clipboard.
+
+Default config file locations are listed in [docs/CLIENTS.md](docs/CLIENTS.md).
 
 ## Supported Languages
 
