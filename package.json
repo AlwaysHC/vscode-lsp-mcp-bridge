@@ -1,14 +1,25 @@
 {
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "VS Code LSP MCP Bridge",
-  "description": "Expose VS Code language features such as references, definitions, symbols, hover, diagnostics, and call hierarchy to MCP clients.",
-  "version": "0.0.1",
+  "description": "Expose VS Code language intelligence as a local MCP server for AI coding tools.",
+  "version": "0.1.1",
   "type": "module",
-  "publisher": "your-publisher-name",
+  "publisher": "georgiana-alba",
   "license": "MIT",
+  "icon": "resources/icon.png",
+  "preview": true,
+  "pricing": "Free",
+  "galleryBanner": {
+    "color": "#101820",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-name/vscode-lsp-mcp-bridge.git"
+    "url": "https://github.com/AlwaysHC/vscode-lsp-mcp-bridge.git"
+  },
+  "homepage": "https://github.com/AlwaysHC/vscode-lsp-mcp-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/AlwaysHC/vscode-lsp-mcp-bridge/issues"
   },
   "categories": [
     "Programming Languages",
@@ -19,13 +30,28 @@
     "lsp",
     "roslyn",
     "codex",
+    "copilot",
+    "claude",
+    "cursor",
     "references",
     "language-server",
+    "mcp-server",
+    "semantic-code",
+    "find-references",
+    "csharp",
+    "typescript",
+    "python",
+    "java",
+    "go",
+    "code-actions",
     "vscode"
   ],
   "engines": {
     "vscode": "^1.100.0"
   },
+  "extensionKind": [
+    "ui"
+  ],
   "main": "./dist/extension.js",
   "activationEvents": [
     "onStartupFinished"
@@ -34,19 +60,47 @@
     "commands": [
       {
         "command": "vscode-lsp-mcp-bridge.start",
-        "title": "LSP MCP Bridge: Start Server"
+        "title": "LSP MCP Bridge: Start Server",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.stop",
-        "title": "LSP MCP Bridge: Stop Server"
+        "title": "LSP MCP Bridge: Stop Server",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.showStatus",
-        "title": "LSP MCP Bridge: Show Status"
+        "title": "LSP MCP Bridge: Show Status",
+        "category": "LSP MCP Bridge"
       },
       {
-        "command": "vscode-lsp-mcp-bridge.copyCodexConfig",
-        "title": "LSP MCP Bridge: Copy Codex MCP Config"
+        "command": "vscode-lsp-mcp-bridge.copyClientConfig",
+        "title": "LSP MCP Bridge: Copy MCP Client Config",
+        "category": "LSP MCP Bridge"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "vscode-lsp-mcp-bridge.getStarted",
+        "title": "Get Started with LSP MCP Bridge",
+        "description": "Expose the current VS Code workspace language features to AI coding tools through MCP.",
+        "steps": [
+          {
+            "id": "vscode-lsp-mcp-bridge.checkStatus",
+            "title": "Check the local bridge",
+            "description": "Open a workspace with the language extension you want to use, then run the status command to confirm the local MCP endpoint is available.\n\n[Show bridge status](command:vscode-lsp-mcp-bridge.showStatus)"
+          },
+          {
+            "id": "vscode-lsp-mcp-bridge.copyConfig",
+            "title": "Copy an MCP client config",
+            "description": "Copy a ready-to-use MCP server configuration for Codex, VS Code/GitHub Copilot, Claude Code, or another HTTP MCP client.\n\n[Copy MCP client config](command:vscode-lsp-mcp-bridge.copyClientConfig)"
+          },
+          {
+            "id": "vscode-lsp-mcp-bridge.enableWrites",
+            "title": "Keep writes explicit",
+            "description": "Read-only tools work by default. Write tools stay disabled until `vscodeLspMcpBridge.enableWriteTools` is enabled, and every write still asks for a VS Code approval before applying edits."
+          }
+        ]
       }
     ],
     "configuration": {
@@ -77,7 +131,7 @@
         "vscodeLspMcpBridge.enableWriteTools": {
           "type": "boolean",
           "default": false,
-          "description": "Enable tools that can apply workspace edits, such as rename or formatting. Keep disabled for read-only use."
+          "description": "Enable MCP tools that can apply workspace edits, such as code actions, rename, and formatting. Each write still requires a VS Code approval prompt."
         }
       }
     }

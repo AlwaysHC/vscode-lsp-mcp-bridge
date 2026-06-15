@@ -1,70 +1,101 @@
 # VS Code LSP MCP Bridge
 
-Expose VS Code language intelligence to MCP clients.
+Expose VS Code language intelligence as a local MCP server for AI coding tools.
 
-This extension lets an MCP client ask the active VS Code language providers for semantic navigation, symbols, hover information, diagnostics, hierarchy data, semantic tokens, links, colors, code actions, formatting, and rename operations. For C# projects, this means the bridge can reuse C# Dev Kit/Roslyn when it is already working in VS Code.
+This extension lets MCP clients ask the active VS Code workspace for semantic references, definitions, symbols, hover information, diagnostics, call hierarchy, type hierarchy, semantic tokens, code actions, formatting edits, and rename operations.
 
-The goal is simple: give coding agents a real "Find All References" path instead of forcing them to approximate symbol relationships with text search.
+It is not tied to Codex and it is not tied to C#. It works with any language extension that implements VS Code's language-provider APIs. C# Dev Kit/Roslyn is a strong use case, but TypeScript, JavaScript, Python, Java, Go, Rust, PHP, and other languages can work when their VS Code language extension exposes the corresponding features.
 
-## How It Works
+The goal is simple: give AI coding tools a real semantic navigation path instead of forcing them to approximate code relationships with text search.
 
-```text
-MCP client
-  -> http://127.0.0.1:36521/mcp
-    -> VS Code extension host
-      -> VS Code language feature commands
-        -> installed language provider such as C# Dev Kit / Roslyn
-```
+## Requirements
 
-The VS Code extension hosts a Streamable HTTP MCP server directly. End users do not need to install Node.js separately to use the published extension.
+- VS Code `1.100.0` or newer.
+- A language extension installed for the workspace you want to inspect.
+- An MCP client that can connect to Streamable HTTP MCP servers.
 
-## Current Tools
+End users do not need to install Node.js. Node/npm are development-time tools only.
 
-The bridge exposes VS Code's public language-provider command surface. It does not expose private Roslyn process internals or arbitrary language-server protocol requests that VS Code does not publish through its extension API.
+## Quick Start
 
-Read-only tools:
+1. Install the extension from the Visual Studio Marketplace.
+2. Open the workspace you want an AI coding tool to inspect.
+3. Make sure the relevant language extension is loaded and working in VS Code.
+4. Run `LSP MCP Bridge: Show Status` from the Command Palette.
+5. Run `LSP MCP Bridge: Copy MCP Client Config`.
+6. Choose your client: Codex, VS Code/GitHub Copilot, Claude Code, or Generic HTTP MCP Client.
+7. Paste the copied config into that client and restart or reload the client if needed.
 
-- `find_references`
-- `go_to_definition`
-- `go_to_declaration`
-- `go_to_implementation`
-- `go_to_type_definition`
-- `hover`
-- `document_symbols`
-- `workspace_symbols`
-- `document_highlights`
-- `diagnostics`
-- `call_hierarchy_for_symbol`
-- `call_hierarchy`
-- `type_hierarchy_for_symbol`
-- `type_hierarchy`
-- `selection_ranges`
-- `document_links`
-- `semantic_tokens`
-- `range_semantic_tokens`
-- `folding_ranges`
-- `document_colors`
-- `color_presentations`
-- `inline_values`
-- `completion`
-- `signature_help`
-- `code_lens`
-- `inlay_hints`
-- `code_actions`
-- `prepare_rename`
-- `preview_rename`
+The bridge starts automatically by default when VS Code finishes startup. You can also use:
 
-Write-capable tools:
+- `LSP MCP Bridge: Start Server`
+- `LSP MCP Bridge: Stop Server`
+- `LSP MCP Bridge: Show Status`
+- `LSP MCP Bridge: Copy MCP Client Config`
 
-- `apply_code_action`
-- `organize_imports`
-- `fix_all`
-- `format_document`
-- `format_range`
-- `format_on_type`
-- `rename_symbol` with `apply: true`
+For client-specific setup, run `LSP MCP Bridge: Copy MCP Client Config` and choose the target client.
 
-Write behavior is disabled by default with `vscodeLspMcpBridge.enableWriteTools: false`. When enabled, each actual write still requires a VS Code modal approval showing the tool name and affected files.
+## Supported Languages
+
+The bridge delegates to VS Code, so language support depends on the installed language extension and project state.
+
+Examples:
+
+- C# through C# Dev Kit/Roslyn
+- TypeScript and JavaScript through the built-in TypeScript language service
+- Python through the Python and Pylance extensions
+- Java through Java language extensions
+- Go through the Go extension
+- Rust through rust-analyzer
+
+Not every provider implements every VS Code language feature. For example, a language extension might support definitions and references but not type hierarchy or semantic tokens.
+
+## What It Exposes
+
+The bridge exposes VS Code's public language-provider command surface. It does not expose private language-server internals or arbitrary language-server protocol requests that VS Code does not publish through its extension API.
+
+Read-only tools include:
+
+- references, definitions, declarations, implementations, and type definitions
+- hover, diagnostics, document highlights, document symbols, and workspace symbols
+- call hierarchy and type hierarchy
+- document links, semantic tokens, folding ranges, colors, inline values, code lens, and inlay hints
+- completions, signature help, code actions, prepare rename, and rename preview
+
+Write-capable tools include:
+
+- apply code action
+- organize imports
+- fix all
+- format document, format range, and format on type
+- rename symbol
+
+See [docs/TOOLS.md](docs/TOOLS.md) for the complete tool catalog.
+
+## Security Model
+
+The bridge is local-first and conservative by default:
+
+- Binds to `127.0.0.1` by default.
+- Uses a random bearer token stored in VS Code SecretStorage.
+- Writes connection info to `~/.vscode-lsp-mcp-bridge/connection.json`.
+- Refuses to start in untrusted workspaces.
+- Exposes read-only tools by default.
+- Keeps write tools disabled unless `vscodeLspMcpBridge.enableWriteTools` is enabled.
+- Requires a VS Code modal approval before each write operation applies edits or executes a write-capable command.
+- Does not expose shell execution.
+
+See [docs/SECURITY.md](docs/SECURITY.md) for details.
+
+## Settings
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `vscodeLspMcpBridge.autoStart` | `true` | Start the local bridge server when VS Code finishes startup. |
+| `vscodeLspMcpBridge.host` | `127.0.0.1` | Host for the local bridge server. Keep this on localhost. |
+| `vscodeLspMcpBridge.port` | `36521` | Port for the local bridge server. |
+| `vscodeLspMcpBridge.connectionFile` | empty | Optional path for the connection file. Empty uses `~/.vscode-lsp-mcp-bridge/connection.json`. |
+| `vscodeLspMcpBridge.enableWriteTools` | `false` | Enable MCP tools that can apply workspace edits. Each write still requires VS Code approval. |
 
 ## Development
 
@@ -87,40 +118,10 @@ Run the extension:
 3. In the Extension Development Host, open a real project with language extensions installed.
 4. Run `LSP MCP Bridge: Show Status`.
 
-## Codex Configuration
+Package a local VSIX:
 
-After starting the extension, run `LSP MCP Bridge: Copy Codex MCP Config` to copy a config block with the current endpoint and bearer token.
-
-Generic shape:
-
-```toml
-[mcp_servers.vscode_lsp]
-url = "http://127.0.0.1:36521/mcp"
-http_headers = { Authorization = "Bearer copied-token" }
+```powershell
+npm run package
 ```
 
-VS Code must be running with the target workspace open, and the bridge must be started.
-
-## Security Defaults
-
-- Binds to `127.0.0.1` by default.
-- Uses a persistent random bearer token stored in VS Code SecretStorage.
-- Writes connection info to `~/.vscode-lsp-mcp-bridge/connection.json`.
-- Refuses to start in untrusted workspaces.
-- Exposes read-only tools by default.
-- Keeps rename and formatting application disabled unless explicitly enabled.
-- Requires per-operation VS Code approval before applying write-tool edits.
-- Does not expose shell execution.
-
-See [docs/SECURITY.md](docs/SECURITY.md).
-
-## Publishing Notes
-
-Before publishing:
-
-- Replace `publisher` in `package.json`.
-- Add icon and marketplace metadata.
-- Decide whether write tools should remain behind an explicit setting.
-- Add integration tests with a small sample project.
-
-See [docs/PUBLISHING.md](docs/PUBLISHING.md).
+See [docs/PUBLISHING.md](docs/PUBLISHING.md) for Marketplace publishing steps.

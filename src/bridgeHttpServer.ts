@@ -44,7 +44,6 @@ export class BridgeHttpServer {
     return [
       "VS Code LSP MCP Bridge is running.",
       `MCP endpoint: http://${this.connectionInfo.host}:${this.connectionInfo.port}/mcp`,
-      `Debug endpoint: http://${this.connectionInfo.host}:${this.connectionInfo.port}/tool`,
       `Connection file: ${this.connectionFile}`,
       `Workspace folders: ${this.connectionInfo.workspaceFolders.length}`
     ].join("\n");
@@ -110,16 +109,85 @@ export class BridgeHttpServer {
     }
   }
 
-  getCodexConfigSnippet(): string {
-    const host = this.connectionInfo?.host ?? DEFAULT_HOST;
-    const port = this.connectionInfo?.port ?? DEFAULT_PORT;
-    const token = this.connectionInfo?.token ?? "<start-the-bridge-first>";
+  getClientConfigSnippet(clientId: string): string {
+    switch (clientId) {
+      case "codex":
+        return this.getCodexConfigSnippet();
+      case "vscode-copilot":
+        return this.getVsCodeCopilotConfigSnippet();
+      case "claude-code":
+        return this.getClaudeCodeConfigSnippet();
+      case "generic":
+        return this.getGenericHttpMcpConfigSnippet();
+      default:
+        throw new Error(`Unknown MCP client config: ${clientId}`);
+    }
+  }
+
+  private getCodexConfigSnippet(): string {
+    const { host, port, token } = this.currentConnectionValues();
 
     return [
       "[mcp_servers.vscode_lsp]",
       `url = "http://${host}:${port}/mcp"`,
       `http_headers = { Authorization = "Bearer ${token}" }`
     ].join("\n");
+  }
+
+  private getVsCodeCopilotConfigSnippet(): string {
+    const { host, port, token } = this.currentConnectionValues();
+
+    return JSON.stringify(
+      {
+        servers: {
+          vscode_lsp: {
+            type: "http",
+            url: `http://${host}:${port}/mcp`,
+            requestInit: {
+              headers: {
+                Authorization: `Bearer ${token}`
+              }
+            }
+          }
+        }
+      },
+      null,
+      2
+    );
+  }
+
+  private getClaudeCodeConfigSnippet(): string {
+    const { host, port, token } = this.currentConnectionValues();
+
+    return `claude mcp add --transport http vscode_lsp http://${host}:${port}/mcp --header "Authorization: Bearer ${token}"`;
+  }
+
+  private getGenericHttpMcpConfigSnippet(): string {
+    const { host, port, token } = this.currentConnectionValues();
+
+    return JSON.stringify(
+      {
+        mcpServers: {
+          vscode_lsp: {
+            type: "http",
+            url: `http://${host}:${port}/mcp`,
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        }
+      },
+      null,
+      2
+    );
+  }
+
+  private currentConnectionValues(): { host: string; port: number; token: string } {
+    const host = this.connectionInfo?.host ?? DEFAULT_HOST;
+    const port = this.connectionInfo?.port ?? DEFAULT_PORT;
+    const token = this.connectionInfo?.token ?? "<start-the-bridge-first>";
+
+    return { host, port, token };
   }
 
   private async handleRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {

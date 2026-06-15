@@ -4,9 +4,9 @@ Tool inputs and results use one-based editor `line` and `column` values. Results
 
 ## Scope
 
-The bridge exposes VS Code's public language-provider command surface. In a C# workspace this routes through the installed C# provider, usually C# Dev Kit/Roslyn.
+The bridge exposes VS Code's public language-provider command surface. It works with any installed language extension that implements the relevant VS Code APIs. In a C# workspace this usually routes through C# Dev Kit/Roslyn; in other workspaces it routes through that language's VS Code provider.
 
-This does not expose private Roslyn process internals or every possible LSP request that a language server may support outside VS Code's public extension API.
+This does not expose private language-server process internals or every possible LSP request that a language server may support outside VS Code's public extension API.
 
 ## Tool Choice Guidance
 

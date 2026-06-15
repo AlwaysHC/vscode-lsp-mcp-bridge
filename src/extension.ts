@@ -3,6 +3,29 @@ import { BridgeHttpServer } from "./bridgeHttpServer.js";
 
 let bridge: BridgeHttpServer | undefined;
 
+const clientConfigOptions = [
+  {
+    label: "Codex",
+    id: "codex",
+    detail: "TOML config for Codex MCP servers."
+  },
+  {
+    label: "VS Code / GitHub Copilot",
+    id: "vscode-copilot",
+    detail: "JSON for VS Code user or workspace mcp.json."
+  },
+  {
+    label: "Claude Code",
+    id: "claude-code",
+    detail: "CLI command using HTTP transport and Authorization header."
+  },
+  {
+    label: "Generic HTTP MCP Client",
+    id: "generic",
+    detail: "JSON shape for MCP clients that support Streamable HTTP servers."
+  }
+];
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   bridge = new BridgeHttpServer(context);
 
@@ -20,25 +43,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         modal: true
       });
     }),
-    vscode.commands.registerCommand("vscode-lsp-mcp-bridge.copyCodexConfig", async () => {
+    vscode.commands.registerCommand("vscode-lsp-mcp-bridge.copyClientConfig", async () => {
       await bridge?.start();
-      const snippet = bridge?.getCodexConfigSnippet();
-      if (!snippet) {
+      if (!bridge) {
         vscode.window.showWarningMessage("VS Code LSP MCP Bridge is not initialized.");
         return;
       }
 
+      const selected = await vscode.window.showQuickPick(clientConfigOptions, {
+        title: "Copy MCP Client Config",
+        placeHolder: "Choose the AI coding tool or MCP client you want to configure"
+      });
+      if (!selected) {
+        return;
+      }
+
+      const snippet = bridge.getClientConfigSnippet(selected.id);
       const choice = await vscode.window.showInformationMessage(
-        "Copy the Codex MCP config to the clipboard?",
+        `Copy the ${selected.label} MCP config to the clipboard?`,
         { modal: true },
-        "Copy Config"
+        "Copy MCP Config"
       );
-      if (choice !== "Copy Config") {
+      if (choice !== "Copy MCP Config") {
         return;
       }
 
       await vscode.env.clipboard.writeText(snippet);
-      vscode.window.showInformationMessage("Codex MCP config copied to clipboard.");
+      vscode.window.showInformationMessage(`${selected.label} MCP config copied to clipboard.`);
     })
   );
 

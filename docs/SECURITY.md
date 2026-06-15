@@ -28,7 +28,7 @@ Override with:
 "vscodeLspMcpBridge.connectionFile": "..."
 ```
 
-Codex normally does not need the connection file. Use `LSP MCP Bridge: Copy Codex MCP Config` to copy a direct Streamable HTTP MCP configuration.
+MCP clients normally do not need the connection file. Use `LSP MCP Bridge: Copy MCP Client Config` to copy a direct Streamable HTTP MCP configuration for your client.
 
 ## Write Tools
 

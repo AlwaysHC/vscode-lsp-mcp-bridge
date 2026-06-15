@@ -3,5 +3,9 @@
 src/**
 node_modules/**
 *.map
+**/*.map
+*.vsix
+.gitignore
+package-lock.json
 tsconfig.json
 npm-debug.log*
