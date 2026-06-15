@@ -36,20 +36,20 @@ npm run package
 Expected output:
 
 ```text
-vscode-lsp-mcp-bridge-0.1.1.vsix
+vscode-lsp-mcp-bridge-0.1.2.vsix
 ```
 
 ## Local VSIX Test
 
 ```powershell
-code --install-extension .\vscode-lsp-mcp-bridge-0.1.1.vsix
+code --install-extension .\vscode-lsp-mcp-bridge-0.1.2.vsix
 ```
 
 Then:
 
 1. Open a workspace with a language provider installed, for example C# Dev Kit for C#, Pylance for Python, or the built-in TypeScript language service.
 2. Run `LSP MCP Bridge: Show Status`.
-3. Confirm the endpoint is `http://127.0.0.1:36521/mcp` unless settings were changed.
+3. Confirm the gateway endpoint is `http://127.0.0.1:36521/mcp` unless settings changed the gateway port.
 4. Run `LSP MCP Bridge: Copy MCP Client Config`.
 5. Choose at least one client format and confirm a snippet is copied.
 6. Add the copied block to that client and restart or reload the client if needed.

@@ -4,11 +4,13 @@ Run `LSP MCP Bridge: Copy MCP Client Config` from the VS Code Command Palette an
 
 You can also run `LSP MCP Bridge: Open MCP Client Config File`. It opens a common MCP client config file, creates the file only after confirmation when it is missing, and copies the matching bridge snippet to the clipboard. It does not silently edit existing files.
 
-Default endpoint:
+Default gateway endpoint:
 
 ```text
 http://127.0.0.1:36521/mcp
 ```
+
+Keep this endpoint in your MCP client config. When several VS Code windows are open, one bridge owns this stable gateway port and the other windows register behind it. Run `LSP MCP Bridge: Use This Workspace` in the VS Code window you want new MCP sessions to inspect.
 
 The token is generated locally and stored in VS Code SecretStorage. Treat copied snippets as sensitive.
 
@@ -159,4 +161,5 @@ Using only vscode_lsp tools, show the incoming calls for MyClass.MyMethod and in
 - The workspace must be trusted.
 - The relevant language extension must finish loading before semantic results are complete.
 - Keep the MCP endpoint on `127.0.0.1` unless you understand the security implications.
-- If the port is already in use, change `vscodeLspMcpBridge.port` and copy a fresh client config.
+- If several VS Code windows are open, run `LSP MCP Bridge: Use This Workspace` in the window you want new MCP sessions to inspect.
+- If another non-bridge process is using the gateway port, stop that process or change `vscodeLspMcpBridge.port` once and copy a fresh client config.

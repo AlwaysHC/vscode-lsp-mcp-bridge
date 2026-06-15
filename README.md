@@ -32,10 +32,13 @@ The bridge starts automatically by default when VS Code finishes startup. You ca
 - `LSP MCP Bridge: Start Server`
 - `LSP MCP Bridge: Stop Server`
 - `LSP MCP Bridge: Show Status`
+- `LSP MCP Bridge: Use This Workspace`
 - `LSP MCP Bridge: Copy MCP Client Config`
 - `LSP MCP Bridge: Open MCP Client Config File`
 
 For client-specific setup, run `LSP MCP Bridge: Copy MCP Client Config` and choose the target client. To avoid hunting for common config files, run `LSP MCP Bridge: Open MCP Client Config File`; it opens the selected file, creates missing files only after confirmation, and copies the matching snippet to the clipboard.
+
+When several VS Code windows are open, the first bridge owns the stable local gateway endpoint. Other windows register behind that gateway, so your MCP client configuration can keep using the same URL. Run `LSP MCP Bridge: Use This Workspace` in the window you want new MCP sessions to inspect.
 
 Default config file locations are listed in [docs/CLIENTS.md](docs/CLIENTS.md).
 
@@ -97,7 +100,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 | --- | --- | --- |
 | `vscodeLspMcpBridge.autoStart` | `true` | Start the local bridge server when VS Code finishes startup. |
 | `vscodeLspMcpBridge.host` | `127.0.0.1` | Host for the local bridge server. Keep this on localhost. |
-| `vscodeLspMcpBridge.port` | `36521` | Port for the local bridge server. |
+| `vscodeLspMcpBridge.port` | `36521` | Stable local gateway port for MCP clients. Additional VS Code windows register behind this gateway instead of requiring client config changes. |
 | `vscodeLspMcpBridge.connectionFile` | empty | Optional path for the connection file. Empty uses `~/.vscode-lsp-mcp-bridge/connection.json`. |
 | `vscodeLspMcpBridge.enableWriteTools` | `false` | Enable MCP tools that can apply workspace edits. Each write still requires VS Code approval. |
 

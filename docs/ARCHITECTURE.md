@@ -19,6 +19,8 @@ Shared protocol
 
 The extension starts a localhost HTTP server. The public integration endpoint is a Streamable HTTP MCP endpoint at `/mcp`.
 
+The first VS Code window to start the bridge owns the configured gateway port. Later VS Code windows start private localhost worker endpoints and register them with that gateway. The gateway routes new MCP sessions to the active workspace, so MCP client configuration can keep using one stable URL.
+
 For manual smoke tests, the bridge also keeps a debug `POST /tool` endpoint that dispatches directly to `runLanguageTool` and returns normalized JSON.
 
 The extension deliberately uses VS Code's generic language feature commands, such as:
@@ -38,7 +40,7 @@ The MCP server runs inside the VS Code extension host. It registers tools from `
 
 The published VSIX bundles runtime dependencies into `dist/extension.js`. Final users do not need Node.js or `node_modules`.
 
-Clients connect directly:
+Clients connect to the stable gateway endpoint:
 
 ```toml
 [mcp_servers.vscode_lsp]
@@ -46,7 +48,7 @@ url = "http://127.0.0.1:36521/mcp"
 http_headers = { Authorization = "Bearer copied-token" }
 ```
 
-This avoids requiring final users to install Node.js or run a separate MCP wrapper process.
+This avoids requiring final users to install Node.js or run a separate MCP wrapper process. Port `36521` is the default gateway. If another VS Code window already owns it, the new window registers as a worker behind the gateway instead of changing the MCP client URL.
 
 ## Connection File
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Keeps MCP client configuration stable by routing additional VS Code windows through the first local gateway endpoint.
+- Adds `LSP MCP Bridge: Use This Workspace` to route new MCP sessions to the current VS Code workspace.
+- Updates multi-window setup, security, architecture, and publishing documentation for the gateway/worker model.
+
 ## 0.1.1
 
 - Adds client-specific MCP configuration file locations to the setup documentation.

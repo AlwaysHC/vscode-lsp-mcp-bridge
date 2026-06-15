@@ -128,6 +128,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         modal: true
       });
     }),
+    vscode.commands.registerCommand("vscode-lsp-mcp-bridge.useWorkspace", async () => {
+      if (!bridge) {
+        vscode.window.showWarningMessage("VS Code LSP MCP Bridge is not initialized.");
+        return;
+      }
+
+      try {
+        const message = await bridge.useThisWorkspace();
+        vscode.window.showInformationMessage(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showWarningMessage(`VS Code LSP MCP Bridge could not activate this workspace: ${message}`);
+      }
+    }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.copyClientConfig", async () => {
       await bridge?.start();
       if (!bridge) {

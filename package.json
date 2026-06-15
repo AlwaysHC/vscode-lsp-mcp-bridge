@@ -2,7 +2,7 @@
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "VS Code LSP MCP Bridge",
   "description": "Expose VS Code language intelligence as a local MCP server for AI coding tools.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "publisher": "georgiana-alba",
   "license": "MIT",
@@ -74,6 +74,11 @@
         "category": "LSP MCP Bridge"
       },
       {
+        "command": "vscode-lsp-mcp-bridge.useWorkspace",
+        "title": "LSP MCP Bridge: Use This Workspace",
+        "category": "LSP MCP Bridge"
+      },
+      {
         "command": "vscode-lsp-mcp-bridge.copyClientConfig",
         "title": "LSP MCP Bridge: Copy MCP Client Config",
         "category": "LSP MCP Bridge"
@@ -99,6 +104,11 @@
             "id": "vscode-lsp-mcp-bridge.copyConfig",
             "title": "Copy an MCP client config",
             "description": "Copy a ready-to-use MCP server configuration for Codex, VS Code/GitHub Copilot, Claude Code, or another HTTP MCP client.\n\n[Copy MCP client config](command:vscode-lsp-mcp-bridge.copyClientConfig)"
+          },
+          {
+            "id": "vscode-lsp-mcp-bridge.useWorkspace",
+            "title": "Route the gateway to this workspace",
+            "description": "When several VS Code windows are open, route new MCP sessions from the stable gateway endpoint to the current workspace.\n\n[Use this workspace](command:vscode-lsp-mcp-bridge.useWorkspace)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.openConfigFile",
@@ -131,7 +141,7 @@
           "default": 36521,
           "minimum": 1024,
           "maximum": 65535,
-          "description": "Port for the local bridge server."
+          "description": "Stable local gateway port for MCP clients. Additional VS Code windows register behind this gateway instead of requiring client config changes."
         },
         "vscodeLspMcpBridge.connectionFile": {
           "type": "string",
