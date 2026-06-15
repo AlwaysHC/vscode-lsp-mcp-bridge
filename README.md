@@ -2,7 +2,7 @@
 
 Expose VS Code language intelligence to MCP clients.
 
-This extension lets an MCP client ask the active VS Code language providers for references, definitions, symbols, hover information, diagnostics, call hierarchy, and related data. For C# projects, this means the bridge can reuse C# Dev Kit/Roslyn when it is already working in VS Code.
+This extension lets an MCP client ask the active VS Code language providers for semantic navigation, symbols, hover information, diagnostics, hierarchy data, semantic tokens, links, colors, code actions, formatting, and rename operations. For C# projects, this means the bridge can reuse C# Dev Kit/Roslyn when it is already working in VS Code.
 
 The goal is simple: give coding agents a real "Find All References" path instead of forcing them to approximate symbol relationships with text search.
 
@@ -20,6 +20,8 @@ The VS Code extension hosts a Streamable HTTP MCP server directly. End users do 
 
 ## Current Tools
 
+The bridge exposes VS Code's public language-provider command surface. It does not expose private Roslyn process internals or arbitrary language-server protocol requests that VS Code does not publish through its extension API.
+
 Read-only tools:
 
 - `find_references`
@@ -32,20 +34,35 @@ Read-only tools:
 - `workspace_symbols`
 - `document_highlights`
 - `diagnostics`
+- `call_hierarchy_for_symbol`
 - `call_hierarchy`
+- `type_hierarchy_for_symbol`
+- `type_hierarchy`
+- `selection_ranges`
+- `document_links`
+- `semantic_tokens`
+- `range_semantic_tokens`
+- `folding_ranges`
+- `document_colors`
+- `color_presentations`
+- `inline_values`
 - `completion`
 - `signature_help`
 - `code_lens`
 - `inlay_hints`
 - `code_actions`
-- `format_document`
 - `prepare_rename`
 - `preview_rename`
 
 Write-capable tools:
 
+- `apply_code_action`
+- `organize_imports`
+- `fix_all`
+- `format_document`
+- `format_range`
+- `format_on_type`
 - `rename_symbol` with `apply: true`
-- `format_document` with `apply: true`
 
 Write behavior is disabled by default with `vscodeLspMcpBridge.enableWriteTools: false`.
 

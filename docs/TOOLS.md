@@ -1,30 +1,22 @@
 # Tool Catalog
 
-Tool inputs use one-based editor `line` and `column` values.
+Tool inputs and results use one-based editor `line` and `column` values. Results are intentionally compact for LLM use: prefer the returned `file`, `line`, and `column` fields directly in user-facing answers and follow-up calls.
 
-Tool results are compact for LLM use and use the same one-based editor `line` and `column` values.
+## Scope
+
+The bridge exposes VS Code's public language-provider command surface. In a C# workspace this routes through the installed C# provider, usually C# Dev Kit/Roslyn.
+
+This does not expose private Roslyn process internals or every possible LSP request that a language server may support outside VS Code's public extension API.
 
 ## Tool Choice Guidance
 
 Use these tools as the primary source for semantic code navigation in the active VS Code workspace.
 
-For references, definitions, implementations, callers/callees, diagnostics, hover, rename, and symbol lookup, use this MCP server before shell commands, `rg`/`grep`, or raw file search.
+For references, definitions, implementations, callers/callees, type hierarchy, diagnostics, hover, rename, code actions, formatting, and symbol lookup, use this MCP server before shell commands, `rg`/`grep`, or raw file search.
 
 If the exact symbol position is unknown, use `workspace_symbols` or `document_symbols` first, then call the position-based tool with the returned `line` and `column`.
 
-Do not use text search as a cross-check unless the user asks for text search or the language provider fails.
-
-```json
-{
-  "file": "D:\\MyProgs\\C#\\DigitalAGoGo\\Aquarius\\Backend\\Controllers\\AgendasController.cs",
-  "line": 242,
-  "column": 25,
-  "endLine": 242,
-  "endColumn": 44
-}
-```
-
-Use `line` and `column` values in user-facing answers.
+Do not use text search as a cross-check unless the user asks for text search or the language provider fails. State any fallback clearly.
 
 ## Position Tools
 
@@ -48,14 +40,37 @@ Tools:
 - `hover`
 - `document_highlights`
 - `call_hierarchy`
+- `type_hierarchy`
+- `selection_ranges`
 - `completion`
 - `signature_help`
 - `prepare_rename`
 - `preview_rename`
+- `rename_symbol`
+- `format_on_type`
 
-## Document Tools
+## Symbol Query Tools
 
 Input:
+
+```json
+{
+  "query": "AgendasController.GetBySalonInternal",
+  "kind": "Method"
+}
+```
+
+Tools:
+
+- `workspace_symbols`
+- `call_hierarchy_for_symbol`
+- `type_hierarchy_for_symbol`
+
+Use these when the caller knows a symbol name but not an exact file position.
+
+## Document And Range Tools
+
+Document input:
 
 ```json
 {
@@ -63,43 +78,56 @@ Input:
 }
 ```
 
+Range input:
+
+```json
+{
+  "file": "path.cs",
+  "startLine": 10,
+  "startColumn": 1,
+  "endLine": 20,
+  "endColumn": 1
+}
+```
+
 Tools:
 
 - `document_symbols`
+- `diagnostics`
+- `document_links`
+- `semantic_tokens`
+- `range_semantic_tokens`
+- `folding_ranges`
+- `document_colors`
+- `color_presentations`
+- `inline_values`
 - `code_lens`
 - `inlay_hints`
 - `code_actions`
 - `format_document`
+- `format_range`
 
-## Workspace Tools
-
-Input:
-
-```json
-{
-  "query": "AddNotWorkingValues"
-}
-```
-
-Tools:
-
-- `workspace_symbols`
-
-## Diagnostics
-
-Input:
-
-```json
-{
-  "file": "optional/path.cs"
-}
-```
-
-If `file` is omitted, diagnostics for all open/workspace-tracked documents are returned.
+Range fields are optional for `inlay_hints`, `code_actions`, and `inline_values`; omitting them means the whole document.
 
 ## Write Tools
 
-`rename_symbol` can preview or apply:
+Write tools preview by default where practical. Applying edits requires:
+
+```json
+"vscodeLspMcpBridge.enableWriteTools": true
+```
+
+Write-capable tools:
+
+- `apply_code_action`
+- `organize_imports`
+- `fix_all`
+- `format_document`
+- `format_range`
+- `format_on_type`
+- `rename_symbol`
+
+Examples:
 
 ```json
 {
@@ -111,17 +139,49 @@ If `file` is omitted, diagnostics for all open/workspace-tracked documents are r
 }
 ```
 
-`format_document` can preview or apply:
-
 ```json
 {
   "file": "path.cs",
+  "kind": "source.organizeImports",
   "apply": false
 }
 ```
 
-Applying edits requires:
+```json
+{
+  "file": "path.cs",
+  "actionIndex": 1,
+  "apply": true
+}
+```
+
+## Useful Workflows
+
+Find callers by symbol name:
 
 ```json
-"vscodeLspMcpBridge.enableWriteTools": true
+{
+  "query": "AgendasController.GetBySalonInternal",
+  "kind": "Method"
+}
 ```
+
+Preview and apply a quick fix:
+
+1. Call `code_actions` with a file and range.
+2. Inspect `actionIndex`, `title`, `kind`, and `edit`.
+3. Call `apply_code_action` with the selected `actionIndex` or `title`.
+
+Inspect semantic classification:
+
+```json
+{
+  "file": "path.cs",
+  "startLine": 10,
+  "startColumn": 1,
+  "endLine": 25,
+  "endColumn": 1
+}
+```
+
+Use `range_semantic_tokens` when the full document token result would be too large.

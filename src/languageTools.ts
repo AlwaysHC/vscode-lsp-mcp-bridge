@@ -5,6 +5,15 @@ interface ToolOptions {
   allowWrites: boolean;
 }
 
+interface SymbolHints {
+  query: string;
+  containerName?: string;
+  file?: string;
+  kind?: string;
+}
+
+type CodeActionLike = vscode.CodeAction | vscode.Command;
+
 export async function runLanguageTool(
   name: string,
   args: Record<string, unknown>,
@@ -24,7 +33,9 @@ export async function runLanguageTool(
     case "hover":
       return normalizeHovers(await executeAtPosition<vscode.Hover[]>("vscode.executeHoverProvider", args));
     case "document_symbols":
-      return normalizeDocumentSymbols(await executeDocument<vscode.DocumentSymbol[]>("vscode.executeDocumentSymbolProvider", args));
+      return normalizeDocumentSymbols(
+        await executeDocument<Array<vscode.DocumentSymbol | vscode.SymbolInformation>>("vscode.executeDocumentSymbolProvider", args)
+      );
     case "workspace_symbols":
       return normalizeWorkspaceSymbols(
         await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
@@ -37,23 +48,53 @@ export async function runLanguageTool(
     case "diagnostics":
       return diagnostics(args);
     case "call_hierarchy_for_symbol":
-      return callHierarchyForSymbol(args);
+      return hierarchyForSymbol(args, "call");
     case "call_hierarchy":
       return callHierarchy(args);
+    case "type_hierarchy_for_symbol":
+      return hierarchyForSymbol(args, "type");
+    case "type_hierarchy":
+      return typeHierarchy(args);
+    case "selection_ranges":
+      return selectionRanges(args);
+    case "document_links":
+      return documentLinks(args);
+    case "semantic_tokens":
+      return semanticTokens(args, false);
+    case "range_semantic_tokens":
+      return semanticTokens(args, true);
+    case "folding_ranges":
+      return foldingRanges(args);
+    case "document_colors":
+      return documentColors(args);
+    case "color_presentations":
+      return colorPresentations(args);
+    case "inline_values":
+      return inlineValues(args);
     case "completion":
       return completion(args);
     case "signature_help":
-      return executeAtPosition<vscode.SignatureHelp>("vscode.executeSignatureHelpProvider", args);
+      return signatureHelp(args);
     case "code_lens":
-      return normalizeCodeLens(await executeDocument<vscode.CodeLens[]>("vscode.executeCodeLensProvider", args));
+      return codeLens(args);
     case "inlay_hints":
       return inlayHints(args);
     case "code_actions":
       return codeActions(args);
+    case "apply_code_action":
+      return applyCodeAction(args, options);
+    case "organize_imports":
+      return sourceAction(args, options, vscode.CodeActionKind.SourceOrganizeImports.value);
+    case "fix_all":
+      return sourceAction(args, options, vscode.CodeActionKind.SourceFixAll.value);
     case "format_document":
       return formatDocument(args, options);
+    case "format_range":
+      return formatRange(args, options);
+    case "format_on_type":
+      return formatOnType(args, options);
     case "prepare_rename":
-      return executeAtPosition<unknown>("vscode.prepareRename", args);
+      return normalizePrepareRename(await executeAtPosition<vscode.Range | { range: vscode.Range; placeholder: string }>("vscode.prepareRename", args));
     case "preview_rename":
       return rename(args, { ...options, forcePreviewOnly: true });
     case "rename_symbol":
@@ -75,10 +116,14 @@ async function executeDocument<T>(command: string, args: Record<string, unknown>
 }
 
 async function openDocumentUri(file: string): Promise<vscode.Uri> {
-  const resolved = path.isAbsolute(file) ? file : path.join(firstWorkspaceFolder(), file);
+  const resolved = resolveFilePath(file);
   const uri = vscode.Uri.file(resolved);
   await vscode.workspace.openTextDocument(uri);
   return uri;
+}
+
+function resolveFilePath(file: string): string {
+  return path.isAbsolute(file) ? file : path.join(firstWorkspaceFolder(), file);
 }
 
 function firstWorkspaceFolder(): string {
@@ -121,21 +166,14 @@ function oneBasedNumberArg(args: Record<string, unknown>, key: string): number {
   return value;
 }
 
-function positionArg(args: Record<string, unknown>): vscode.Position {
-  return new vscode.Position(
-    oneBasedNumberArg(args, "line") - 1,
-    oneBasedNumberArg(args, "column") - 1
-  );
-}
-
-function optionalBooleanArg(args: Record<string, unknown>, key: string): boolean {
+function optionalOneBasedNumberArg(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key];
   if (value === undefined || value === null) {
-    return false;
+    return undefined;
   }
 
-  if (typeof value !== "boolean") {
-    throw new Error(`Expected optional boolean argument: ${key}`);
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new Error(`Expected optional one-based positive integer argument: ${key}`);
   }
 
   return value;
@@ -152,6 +190,96 @@ function optionalPositiveIntegerArg(args: Record<string, unknown>, key: string, 
   }
 
   return value;
+}
+
+function optionalNonNegativeIntegerArg(args: Record<string, unknown>, key: string, defaultValue: number): number {
+  const value = args[key];
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`Expected optional non-negative integer argument: ${key}`);
+  }
+
+  return value;
+}
+
+function optionalNumberArg(args: Record<string, unknown>, key: string, defaultValue: number): number {
+  const value = args[key];
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    throw new Error(`Expected optional number argument: ${key}`);
+  }
+
+  return value;
+}
+
+function optionalBooleanArg(args: Record<string, unknown>, key: string, defaultValue = false): boolean {
+  const value = args[key];
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+
+  if (typeof value !== "boolean") {
+    throw new Error(`Expected optional boolean argument: ${key}`);
+  }
+
+  return value;
+}
+
+function positionArg(args: Record<string, unknown>): vscode.Position {
+  return new vscode.Position(
+    oneBasedNumberArg(args, "line") - 1,
+    oneBasedNumberArg(args, "column") - 1
+  );
+}
+
+function rangeArg(args: Record<string, unknown>): vscode.Range {
+  return new vscode.Range(
+    oneBasedNumberArg(args, "startLine") - 1,
+    oneBasedNumberArg(args, "startColumn") - 1,
+    oneBasedNumberArg(args, "endLine") - 1,
+    oneBasedNumberArg(args, "endColumn") - 1
+  );
+}
+
+function optionalRangeArg(args: Record<string, unknown>, document: vscode.TextDocument): vscode.Range {
+  if (optionalOneBasedNumberArg(args, "startLine") === undefined) {
+    return fullDocumentRange(document);
+  }
+
+  return rangeArg(args);
+}
+
+function stoppedLocationArg(args: Record<string, unknown>, fallback: vscode.Range): vscode.Range {
+  const stoppedLine = optionalOneBasedNumberArg(args, "stoppedLine");
+  const stoppedColumn = optionalOneBasedNumberArg(args, "stoppedColumn");
+  if (stoppedLine === undefined && stoppedColumn === undefined) {
+    return fallback;
+  }
+
+  if (stoppedLine === undefined || stoppedColumn === undefined) {
+    throw new Error("stoppedLine and stoppedColumn must be provided together.");
+  }
+
+  const position = new vscode.Position(stoppedLine - 1, stoppedColumn - 1);
+  return new vscode.Range(position, position);
+}
+
+function fullDocumentRange(document: vscode.TextDocument): vscode.Range {
+  const lastLine = Math.max(0, document.lineCount - 1);
+  return new vscode.Range(0, 0, lastLine, document.lineAt(lastLine).range.end.character);
+}
+
+function formattingOptions(args: Record<string, unknown>): vscode.FormattingOptions {
+  return {
+    tabSize: optionalPositiveIntegerArg(args, "tabSize", 4),
+    insertSpaces: optionalBooleanArg(args, "insertSpaces", true)
+  };
 }
 
 function normalizeRange(range: vscode.Range): object {
@@ -182,13 +310,6 @@ function locations(values: Array<vscode.Location | vscode.LocationLink> | undefi
   return (values ?? []).map(normalizeLocation);
 }
 
-function normalizeHovers(values: vscode.Hover[] | undefined): object[] {
-  return (values ?? []).map(hover => ({
-    text: hover.contents.map(markedStringToText).join("\n\n"),
-    ...(hover.range ? normalizeRange(hover.range) : {})
-  }));
-}
-
 function markedStringToText(value: vscode.MarkdownString | vscode.MarkedString): string {
   if (typeof value === "string") {
     return value;
@@ -201,14 +322,45 @@ function markedStringToText(value: vscode.MarkdownString | vscode.MarkedString):
   return value.value;
 }
 
-function normalizeDocumentSymbols(values: vscode.DocumentSymbol[] | undefined): object[] {
-  return (values ?? []).map(symbol => ({
-    name: symbol.name,
-    detail: symbol.detail,
-    kind: vscode.SymbolKind[symbol.kind],
-    ...normalizeRange(symbol.selectionRange),
-    children: normalizeDocumentSymbols(symbol.children)
+function markdownToText(value: string | vscode.MarkdownString | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return typeof value === "string" ? value : value.value;
+}
+
+function normalizeHovers(values: vscode.Hover[] | undefined): object[] {
+  return (values ?? []).map(hover => ({
+    text: hover.contents.map(markedStringToText).join("\n\n"),
+    ...(hover.range ? normalizeRange(hover.range) : {})
   }));
+}
+
+function normalizeDocumentSymbols(values: Array<vscode.DocumentSymbol | vscode.SymbolInformation> | undefined): object[] {
+  return (values ?? []).map(symbol => {
+    if ("location" in symbol) {
+      return {
+        name: symbol.name,
+        containerName: symbol.containerName,
+        kind: vscode.SymbolKind[symbol.kind],
+        ...normalizeLocation(symbol.location)
+      };
+    }
+
+    return {
+      name: symbol.name,
+      detail: symbol.detail,
+      kind: vscode.SymbolKind[symbol.kind],
+      range: normalizeRange(symbol.range),
+      selection: normalizeRange(symbol.selectionRange),
+      line: symbol.selectionRange.start.line + 1,
+      column: symbol.selectionRange.start.character + 1,
+      endLine: symbol.selectionRange.end.line + 1,
+      endColumn: symbol.selectionRange.end.character + 1,
+      children: normalizeDocumentSymbols(symbol.children)
+    };
+  });
 }
 
 function normalizeWorkspaceSymbols(values: vscode.SymbolInformation[] | undefined): object[] {
@@ -249,39 +401,37 @@ async function diagnostics(args: Record<string, unknown>): Promise<object[]> {
       severity: vscode.DiagnosticSeverity[diagnostic.severity],
       source: diagnostic.source,
       code: diagnostic.code,
+      tags: diagnostic.tags?.map(tag => vscode.DiagnosticTag[tag]),
+      relatedInformation: diagnostic.relatedInformation?.map(info => ({
+        message: info.message,
+        ...normalizeLocation(info.location)
+      })),
       ...normalizeRange(diagnostic.range)
     }))
   }));
 }
 
-async function callHierarchy(args: Record<string, unknown>): Promise<object[]> {
-  const uri = await openDocumentUri(stringArg(args, "file"));
-  const position = positionArg(args);
-  return callHierarchyAt(uri, position);
-}
-
-async function callHierarchyForSymbol(args: Record<string, unknown>): Promise<object> {
+async function hierarchyForSymbol(args: Record<string, unknown>, mode: "call" | "type"): Promise<object> {
   const query = stringArg(args, "query");
-  const containerName = optionalStringArg(args, "containerName");
-  const file = optionalStringArg(args, "file");
-  const kind = optionalStringArg(args, "kind");
-  const maxCandidates = optionalPositiveIntegerArg(args, "maxCandidates", 10);
-  const rankedSymbols = rankWorkspaceSymbols(await workspaceSymbolsForQuery(query), {
+  const hints = {
     query,
-    containerName,
-    file,
-    kind
-  });
-  const candidates = rankedSymbols.slice(0, maxCandidates);
+    containerName: optionalStringArg(args, "containerName"),
+    file: optionalStringArg(args, "file"),
+    kind: optionalStringArg(args, "kind")
+  };
+  const maxCandidates = optionalPositiveIntegerArg(args, "maxCandidates", 10);
+  const candidates = rankWorkspaceSymbols(await workspaceSymbolsForQuery(query), hints).slice(0, maxCandidates);
 
   for (const candidate of candidates) {
-    const hierarchy = await callHierarchyAt(candidate.symbol.location.uri, candidate.symbol.location.range.start);
+    const hierarchy = mode === "call"
+      ? await callHierarchyAt(candidate.symbol.location.uri, candidate.symbol.location.range.start)
+      : await typeHierarchyAt(candidate.symbol.location.uri, candidate.symbol.location.range.start);
     if (hierarchy.length > 0) {
       return {
         query,
         selectedSymbol: normalizeWorkspaceSymbol(candidate.symbol),
         candidates: candidates.map(value => normalizeWorkspaceSymbol(value.symbol)),
-        callHierarchy: hierarchy
+        [mode === "call" ? "callHierarchy" : "typeHierarchy"]: hierarchy
       };
     }
   }
@@ -290,7 +440,7 @@ async function callHierarchyForSymbol(args: Record<string, unknown>): Promise<ob
     query,
     selectedSymbol: candidates[0] ? normalizeWorkspaceSymbol(candidates[0].symbol) : undefined,
     candidates: candidates.map(value => normalizeWorkspaceSymbol(value.symbol)),
-    callHierarchy: []
+    [mode === "call" ? "callHierarchy" : "typeHierarchy"]: []
   };
 }
 
@@ -327,7 +477,7 @@ function workspaceSymbolKey(symbol: vscode.SymbolInformation): string {
 
 function rankWorkspaceSymbols(
   symbols: vscode.SymbolInformation[],
-  hints: { query: string; containerName?: string; file?: string; kind?: string }
+  hints: SymbolHints
 ): Array<{ symbol: vscode.SymbolInformation; score: number }> {
   const query = hints.query.toLowerCase();
   const queryParts = hints.query.split(".").filter(Boolean);
@@ -374,7 +524,7 @@ function rankWorkspaceSymbols(
         }
       }
 
-      if (["Method", "Function", "Constructor"].includes(symbolKind)) {
+      if (["Method", "Function", "Constructor", "Class", "Interface", "Struct"].includes(symbolKind)) {
         score += 25;
       }
 
@@ -387,12 +537,13 @@ function rankWorkspaceSymbols(
     .sort((left, right) => right.score - left.score);
 }
 
-function resolveFilePath(file: string): string {
-  return path.isAbsolute(file) ? file : path.join(firstWorkspaceFolder(), file);
-}
-
 function normalizePathForComparison(file: string): string {
   return path.normalize(file).toLowerCase();
+}
+
+async function callHierarchy(args: Record<string, unknown>): Promise<object[]> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  return callHierarchyAt(uri, positionArg(args));
 }
 
 async function callHierarchyAt(uri: vscode.Uri, position: vscode.Position): Promise<object[]> {
@@ -436,7 +587,254 @@ function normalizeCallHierarchyItem(item: vscode.CallHierarchyItem): object {
     detail: item.detail,
     kind: vscode.SymbolKind[item.kind],
     file: item.uri.fsPath,
+    range: normalizeRange(item.range),
     ...normalizeRange(item.selectionRange)
+  };
+}
+
+async function typeHierarchy(args: Record<string, unknown>): Promise<object[]> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  return typeHierarchyAt(uri, positionArg(args));
+}
+
+async function typeHierarchyAt(uri: vscode.Uri, position: vscode.Position): Promise<object[]> {
+  await vscode.workspace.openTextDocument(uri);
+  const items = await vscode.commands.executeCommand<vscode.TypeHierarchyItem[]>(
+    "vscode.prepareTypeHierarchy",
+    uri,
+    position
+  );
+
+  const result = [];
+  for (const item of items ?? []) {
+    const supertypes = await vscode.commands.executeCommand<vscode.TypeHierarchyItem[]>(
+      "vscode.provideSupertypes",
+      item
+    );
+    const subtypes = await vscode.commands.executeCommand<vscode.TypeHierarchyItem[]>(
+      "vscode.provideSubtypes",
+      item
+    );
+
+    result.push({
+      item: normalizeTypeHierarchyItem(item),
+      supertypes: (supertypes ?? []).map(normalizeTypeHierarchyItem),
+      subtypes: (subtypes ?? []).map(normalizeTypeHierarchyItem)
+    });
+  }
+
+  return result;
+}
+
+function normalizeTypeHierarchyItem(item: vscode.TypeHierarchyItem): object {
+  return {
+    name: item.name,
+    detail: item.detail,
+    kind: vscode.SymbolKind[item.kind],
+    file: item.uri.fsPath,
+    range: normalizeRange(item.range),
+    ...normalizeRange(item.selectionRange)
+  };
+}
+
+async function selectionRanges(args: Record<string, unknown>): Promise<object[]> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const values = await vscode.commands.executeCommand<vscode.SelectionRange[]>(
+    "vscode.executeSelectionRangeProvider",
+    uri,
+    positionArg(args)
+  );
+
+  return (values ?? []).map(normalizeSelectionRange);
+}
+
+function normalizeSelectionRange(value: vscode.SelectionRange): object {
+  return {
+    ...normalizeRange(value.range),
+    parent: value.parent ? normalizeSelectionRange(value.parent) : undefined
+  };
+}
+
+async function documentLinks(args: Record<string, unknown>): Promise<object[]> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const linkResolveCount = optionalPositiveIntegerArg(args, "linkResolveCount", 100);
+  const values = await vscode.commands.executeCommand<vscode.DocumentLink[]>(
+    "vscode.executeLinkProvider",
+    uri,
+    linkResolveCount
+  );
+
+  return (values ?? []).map(link => ({
+    ...normalizeRange(link.range),
+    target: link.target?.toString(true),
+    tooltip: link.tooltip
+  }));
+}
+
+async function semanticTokens(args: Record<string, unknown>, rangeMode: boolean): Promise<object> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const document = await vscode.workspace.openTextDocument(uri);
+  const range = optionalRangeArg(args, document);
+  const legend = rangeMode
+    ? await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
+        "vscode.provideDocumentRangeSemanticTokensLegend",
+        uri,
+        range
+      )
+    : await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
+        "vscode.provideDocumentSemanticTokensLegend",
+        uri
+      );
+  const tokens = rangeMode
+    ? await vscode.commands.executeCommand<vscode.SemanticTokens>(
+        "vscode.provideDocumentRangeSemanticTokens",
+        uri,
+        range
+      )
+    : await vscode.commands.executeCommand<vscode.SemanticTokens>(
+        "vscode.provideDocumentSemanticTokens",
+        uri
+      );
+
+  return {
+    legend: legend ? {
+      tokenTypes: legend.tokenTypes,
+      tokenModifiers: legend.tokenModifiers
+    } : undefined,
+    resultId: tokens?.resultId,
+    tokens: decodeSemanticTokens(tokens, legend)
+  };
+}
+
+function decodeSemanticTokens(tokens: vscode.SemanticTokens | undefined, legend: vscode.SemanticTokensLegend | undefined): object[] {
+  const data = Array.from(tokens?.data ?? []);
+  const result = [];
+  let line = 0;
+  let character = 0;
+
+  for (let index = 0; index + 4 < data.length; index += 5) {
+    const deltaLine = data[index];
+    const deltaStart = data[index + 1];
+    const length = data[index + 2];
+    const tokenType = data[index + 3];
+    const tokenModifiers = data[index + 4];
+    line += deltaLine;
+    character = deltaLine === 0 ? character + deltaStart : deltaStart;
+
+    result.push({
+      line: line + 1,
+      column: character + 1,
+      endLine: line + 1,
+      endColumn: character + length + 1,
+      length,
+      tokenType: legend?.tokenTypes[tokenType] ?? tokenType,
+      tokenModifiers: decodeTokenModifiers(tokenModifiers, legend)
+    });
+  }
+
+  return result;
+}
+
+function decodeTokenModifiers(bitset: number, legend: vscode.SemanticTokensLegend | undefined): Array<string | number> {
+  if (!legend) {
+    return bitset === 0 ? [] : [bitset];
+  }
+
+  return legend.tokenModifiers.filter((_, index) => (bitset & Math.pow(2, index)) !== 0);
+}
+
+async function foldingRanges(args: Record<string, unknown>): Promise<object[]> {
+  const values = await executeDocument<vscode.FoldingRange[]>("vscode.executeFoldingRangeProvider", args);
+  return (values ?? []).map(range => ({
+    startLine: range.start + 1,
+    endLine: range.end + 1,
+    kind: range.kind
+  }));
+}
+
+async function documentColors(args: Record<string, unknown>): Promise<object[]> {
+  const values = await executeDocument<vscode.ColorInformation[]>("vscode.executeDocumentColorProvider", args);
+  return (values ?? []).map(info => ({
+    color: normalizeColor(info.color),
+    ...normalizeRange(info.range)
+  }));
+}
+
+async function colorPresentations(args: Record<string, unknown>): Promise<object[]> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const color = colorArg(args);
+  const range = rangeArg(args);
+  const values = await vscode.commands.executeCommand<vscode.ColorPresentation[]>(
+    "vscode.executeColorPresentationProvider",
+    color,
+    { uri, range }
+  );
+
+  return (values ?? []).map(presentation => ({
+    label: presentation.label,
+    textEdit: presentation.textEdit ? normalizeTextEdit(presentation.textEdit) : undefined,
+    additionalTextEdits: presentation.additionalTextEdits?.map(normalizeTextEdit)
+  }));
+}
+
+function colorArg(args: Record<string, unknown>): vscode.Color {
+  return new vscode.Color(
+    optionalNumberArg(args, "red", 0),
+    optionalNumberArg(args, "green", 0),
+    optionalNumberArg(args, "blue", 0),
+    optionalNumberArg(args, "alpha", 1)
+  );
+}
+
+function normalizeColor(color: vscode.Color): object {
+  return {
+    red: color.red,
+    green: color.green,
+    blue: color.blue,
+    alpha: color.alpha
+  };
+}
+
+async function inlineValues(args: Record<string, unknown>): Promise<object[]> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const document = await vscode.workspace.openTextDocument(uri);
+  const range = optionalRangeArg(args, document);
+  const context: vscode.InlineValueContext = {
+    frameId: optionalNonNegativeIntegerArg(args, "frameId", 0),
+    stoppedLocation: stoppedLocationArg(args, range)
+  };
+  const values = await vscode.commands.executeCommand<vscode.InlineValue[]>(
+    "vscode.executeInlineValueProvider",
+    uri,
+    range,
+    context
+  );
+
+  return (values ?? []).map(normalizeInlineValue);
+}
+
+function normalizeInlineValue(value: vscode.InlineValue): object {
+  if ("text" in value) {
+    return {
+      type: "text",
+      text: value.text,
+      ...normalizeRange(value.range)
+    };
+  }
+
+  if ("variableName" in value || "caseSensitiveLookup" in value) {
+    return {
+      type: "variableLookup",
+      variableName: value.variableName,
+      caseSensitiveLookup: value.caseSensitiveLookup,
+      ...normalizeRange(value.range)
+    };
+  }
+
+  return {
+    type: "evaluatableExpression",
+    expression: value.expression,
+    ...normalizeRange(value.range)
   };
 }
 
@@ -444,7 +842,7 @@ async function completion(args: Record<string, unknown>): Promise<object> {
   const uri = await openDocumentUri(stringArg(args, "file"));
   const position = positionArg(args);
   const triggerCharacter = optionalStringArg(args, "triggerCharacter");
-  const itemResolveCount = typeof args.itemResolveCount === "number" ? args.itemResolveCount : 20;
+  const itemResolveCount = optionalPositiveIntegerArg(args, "itemResolveCount", 20);
   const list = await vscode.commands.executeCommand<vscode.CompletionList>(
     "vscode.executeCompletionItemProvider",
     uri,
@@ -459,17 +857,59 @@ async function completion(args: Record<string, unknown>): Promise<object> {
       label: typeof item.label === "string" ? item.label : item.label.label,
       kind: item.kind === undefined ? undefined : vscode.CompletionItemKind[item.kind],
       detail: item.detail,
-      documentation: typeof item.documentation === "string" ? item.documentation : item.documentation?.value
+      documentation: markdownToText(item.documentation),
+      sortText: item.sortText,
+      filterText: item.filterText,
+      commitCharacters: item.commitCharacters,
+      range: item.range && !("inserting" in item.range) ? normalizeRange(item.range) : undefined
     }))
   };
 }
 
-function normalizeCodeLens(values: vscode.CodeLens[] | undefined): object[] {
+async function signatureHelp(args: Record<string, unknown>): Promise<object | undefined> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const triggerCharacter = optionalStringArg(args, "triggerCharacter");
+  const value = await vscode.commands.executeCommand<vscode.SignatureHelp>(
+    "vscode.executeSignatureHelpProvider",
+    uri,
+    positionArg(args),
+    triggerCharacter
+  );
+
+  if (!value) {
+    return undefined;
+  }
+
+  return {
+    activeSignature: value.activeSignature + 1,
+    activeParameter: value.activeParameter + 1,
+    signatures: value.signatures.map(signature => ({
+      label: signature.label,
+      documentation: markdownToText(signature.documentation),
+      activeParameter: signature.activeParameter === undefined ? undefined : signature.activeParameter + 1,
+      parameters: signature.parameters.map(parameter => ({
+        label: parameter.label,
+        documentation: markdownToText(parameter.documentation)
+      }))
+    }))
+  };
+}
+
+async function codeLens(args: Record<string, unknown>): Promise<object[]> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const itemResolveCount = optionalPositiveIntegerArg(args, "itemResolveCount", 100);
+  const values = await vscode.commands.executeCommand<vscode.CodeLens[]>(
+    "vscode.executeCodeLensProvider",
+    uri,
+    itemResolveCount
+  );
+
   return (values ?? []).map(codeLens => ({
     ...normalizeRange(codeLens.range),
     command: codeLens.command
       ? {
-          title: codeLens.command.title
+          title: codeLens.command.title,
+          command: codeLens.command.command
         }
       : undefined
   }));
@@ -478,11 +918,10 @@ function normalizeCodeLens(values: vscode.CodeLens[] | undefined): object[] {
 async function inlayHints(args: Record<string, unknown>): Promise<object[]> {
   const uri = await openDocumentUri(stringArg(args, "file"));
   const document = await vscode.workspace.openTextDocument(uri);
-  const range = new vscode.Range(0, 0, document.lineCount, 0);
   const values = await vscode.commands.executeCommand<vscode.InlayHint[]>(
     "vscode.executeInlayHintProvider",
     uri,
-    range
+    optionalRangeArg(args, document)
   );
 
   return (values ?? []).map(hint => ({
@@ -490,30 +929,157 @@ async function inlayHints(args: Record<string, unknown>): Promise<object[]> {
     kind: hint.kind === undefined ? undefined : vscode.InlayHintKind[hint.kind],
     line: hint.position.line + 1,
     column: hint.position.character + 1,
-    tooltip: typeof hint.tooltip === "string" ? hint.tooltip : hint.tooltip?.value
+    tooltip: typeof hint.tooltip === "string" ? hint.tooltip : hint.tooltip?.value,
+    paddingLeft: hint.paddingLeft,
+    paddingRight: hint.paddingRight
   }));
 }
 
 async function codeActions(args: Record<string, unknown>): Promise<object[]> {
+  const actions = await getCodeActions(args);
+  return actions.map((action, index) => normalizeCodeAction(action, index));
+}
+
+async function getCodeActions(args: Record<string, unknown>): Promise<CodeActionLike[]> {
   const uri = await openDocumentUri(stringArg(args, "file"));
   const document = await vscode.workspace.openTextDocument(uri);
-  const range = new vscode.Range(0, 0, document.lineCount, 0);
-  const actions = await vscode.commands.executeCommand<Array<vscode.CodeAction | vscode.Command>>(
+  const range = optionalRangeArg(args, document);
+  const kind = optionalStringArg(args, "kind");
+  const itemResolveCount = optionalPositiveIntegerArg(args, "itemResolveCount", 100);
+  return await vscode.commands.executeCommand<CodeActionLike[]>(
     "vscode.executeCodeActionProvider",
     uri,
     range,
-    undefined,
-    100
-  );
-
-  return (actions ?? []).map(action => ({
-    title: action.title,
-    kind: isCodeAction(action) ? action.kind?.value : undefined
-  }));
+    kind ? codeActionKindFromString(kind) : undefined,
+    itemResolveCount
+  ) ?? [];
 }
 
-function isCodeAction(action: vscode.CodeAction | vscode.Command): action is vscode.CodeAction {
-  return "diagnostics" in action || "edit" in action || "kind" in action;
+function codeActionKindFromString(value: string): vscode.CodeActionKind {
+  const [head, ...rest] = value.split(".");
+  const tail = rest.join(".");
+  const base = (() => {
+    switch (head) {
+      case "quickfix":
+        return vscode.CodeActionKind.QuickFix;
+      case "refactor":
+        return vscode.CodeActionKind.Refactor;
+      case "source":
+        return vscode.CodeActionKind.Source;
+      case "notebook":
+        return vscode.CodeActionKind.Notebook;
+      default:
+        return vscode.CodeActionKind.Empty;
+    }
+  })();
+  return tail ? base.append(tail) : base;
+}
+
+function normalizeCodeAction(action: CodeActionLike, index: number): object {
+  const command = isCodeAction(action) ? action.command : action;
+  return {
+    actionIndex: index + 1,
+    title: action.title,
+    kind: isCodeAction(action) ? action.kind?.value : undefined,
+    isPreferred: isCodeAction(action) ? action.isPreferred : undefined,
+    disabled: isCodeAction(action) ? action.disabled?.reason : undefined,
+    diagnostics: isCodeAction(action) ? action.diagnostics?.map(diagnostic => ({
+      message: diagnostic.message,
+      severity: vscode.DiagnosticSeverity[diagnostic.severity],
+      source: diagnostic.source,
+      code: diagnostic.code,
+      ...normalizeRange(diagnostic.range)
+    })) : undefined,
+    edit: isCodeAction(action) ? normalizeWorkspaceEdit(action.edit) : undefined,
+    command: normalizeCommand(command)
+  };
+}
+
+function isCodeAction(action: CodeActionLike): action is vscode.CodeAction {
+  return "diagnostics" in action || "edit" in action || "kind" in action || "isPreferred" in action;
+}
+
+function normalizeCommand(command: vscode.Command | undefined): object | undefined {
+  if (!command) {
+    return undefined;
+  }
+
+  return {
+    title: command.title,
+    command: command.command,
+    argumentCount: command.arguments?.length ?? 0
+  };
+}
+
+async function applyCodeAction(args: Record<string, unknown>, options: ToolOptions): Promise<object> {
+  ensureWritesAllowed(options);
+  const actions = await getCodeActions(args);
+  const selected = selectCodeAction(actions, args);
+  const applied = await applySelectedCodeAction(selected, optionalBooleanArg(args, "executeCommand", true));
+  return {
+    ...applied,
+    selectedAction: normalizeCodeAction(selected.action, selected.index)
+  };
+}
+
+async function sourceAction(
+  args: Record<string, unknown>,
+  options: ToolOptions,
+  kind: string
+): Promise<object> {
+  const actionArgs = { ...args, kind };
+  const actions = await getCodeActions(actionArgs);
+  if (!optionalBooleanArg(args, "apply")) {
+    return {
+      applied: false,
+      actions: actions.map((action, index) => normalizeCodeAction(action, index))
+    };
+  }
+
+  ensureWritesAllowed(options);
+  const selected = selectCodeAction(actions, actionArgs);
+  const applied = await applySelectedCodeAction(selected, optionalBooleanArg(args, "executeCommand", true));
+  return {
+    ...applied,
+    selectedAction: normalizeCodeAction(selected.action, selected.index)
+  };
+}
+
+function selectCodeAction(actions: CodeActionLike[], args: Record<string, unknown>): { action: CodeActionLike; index: number } {
+  const actionIndex = optionalPositiveIntegerArg(args, "actionIndex", 1) - 1;
+  const title = optionalStringArg(args, "title");
+  const exactTitle = optionalBooleanArg(args, "exactTitle");
+  const selectedIndex = title
+    ? actions.findIndex(action => exactTitle ? action.title === title : action.title.toLowerCase().includes(title.toLowerCase()))
+    : actionIndex;
+  const action = actions[selectedIndex];
+
+  if (!action) {
+    throw new Error("No matching code action was found.");
+  }
+
+  if (isCodeAction(action) && action.disabled) {
+    throw new Error(`Code action is disabled: ${action.disabled.reason}`);
+  }
+
+  return { action, index: selectedIndex };
+}
+
+async function applySelectedCodeAction(
+  selected: { action: CodeActionLike; index: number },
+  executeCommand: boolean
+): Promise<{ appliedEdit: boolean; executedCommand: boolean }> {
+  const { action } = selected;
+  const appliedEdit = isCodeAction(action) && action.edit ? await vscode.workspace.applyEdit(action.edit) : false;
+  let executedCommand = false;
+  const command = isCodeAction(action) ? action.command : action;
+
+  if (executeCommand && command) {
+    await vscode.commands.executeCommand(command.command, ...(command.arguments ?? []));
+    executedCommand = true;
+  }
+
+  return { appliedEdit, executedCommand };
 }
 
 async function formatDocument(args: Record<string, unknown>, options: ToolOptions): Promise<object> {
@@ -521,18 +1087,48 @@ async function formatDocument(args: Record<string, unknown>, options: ToolOption
   const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
     "vscode.executeFormatDocumentProvider",
     uri,
-    {
-      tabSize: 4,
-      insertSpaces: true
-    }
+    formattingOptions(args)
   );
 
-  const normalized = normalizeTextEdits(edits ?? []);
-  const apply = optionalBooleanArg(args, "apply");
-  if (apply) {
+  return previewOrApplyTextEdits(uri, edits ?? [], args, options);
+}
+
+async function formatRange(args: Record<string, unknown>, options: ToolOptions): Promise<object> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
+    "vscode.executeFormatRangeProvider",
+    uri,
+    rangeArg(args),
+    formattingOptions(args)
+  );
+
+  return previewOrApplyTextEdits(uri, edits ?? [], args, options);
+}
+
+async function formatOnType(args: Record<string, unknown>, options: ToolOptions): Promise<object> {
+  const uri = await openDocumentUri(stringArg(args, "file"));
+  const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
+    "vscode.executeFormatOnTypeProvider",
+    uri,
+    positionArg(args),
+    stringArg(args, "triggerCharacter"),
+    formattingOptions(args)
+  );
+
+  return previewOrApplyTextEdits(uri, edits ?? [], args, options);
+}
+
+async function previewOrApplyTextEdits(
+  uri: vscode.Uri,
+  edits: vscode.TextEdit[],
+  args: Record<string, unknown>,
+  options: ToolOptions
+): Promise<object> {
+  const normalized = edits.map(normalizeTextEdit);
+  if (optionalBooleanArg(args, "apply")) {
     ensureWritesAllowed(options);
     const workspaceEdit = new vscode.WorkspaceEdit();
-    for (const edit of edits ?? []) {
+    for (const edit of edits) {
       workspaceEdit.replace(uri, edit.range, edit.newText);
     }
     const applied = await vscode.workspace.applyEdit(workspaceEdit);
@@ -547,13 +1143,11 @@ async function rename(
   options: ToolOptions & { forcePreviewOnly?: boolean }
 ): Promise<object> {
   const uri = await openDocumentUri(stringArg(args, "file"));
-  const position = positionArg(args);
-  const newName = stringArg(args, "newName");
   const edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit>(
     "vscode.executeDocumentRenameProvider",
     uri,
-    position,
-    newName
+    positionArg(args),
+    stringArg(args, "newName")
   );
 
   const normalized = normalizeWorkspaceEdit(edit);
@@ -567,28 +1161,44 @@ async function rename(
   return { applied: false, edit: normalized };
 }
 
+function normalizePrepareRename(value: vscode.Range | { range: vscode.Range; placeholder: string } | undefined): object | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if ("range" in value) {
+    return {
+      placeholder: value.placeholder,
+      ...normalizeRange(value.range)
+    };
+  }
+
+  return normalizeRange(value);
+}
+
 function ensureWritesAllowed(options: ToolOptions): void {
   if (!options.allowWrites) {
     throw new Error("Write tools are disabled. Enable vscodeLspMcpBridge.enableWriteTools to apply edits.");
   }
 }
 
-function normalizeTextEdits(values: vscode.TextEdit[]): object[] {
-  return values.map(edit => ({
+function normalizeTextEdit(edit: vscode.TextEdit): object {
+  return {
     ...normalizeRange(edit.range),
     newText: edit.newText
-  }));
+  };
 }
 
-function normalizeWorkspaceEdit(edit: vscode.WorkspaceEdit | undefined): object {
+function normalizeWorkspaceEdit(edit: vscode.WorkspaceEdit | undefined): object | undefined {
   if (!edit) {
-    return { entries: [] };
+    return undefined;
   }
 
   return {
+    size: edit.size,
     entries: edit.entries().map(([uri, edits]) => ({
       file: uri.fsPath,
-      edits: normalizeTextEdits(edits)
+      edits: edits.map(normalizeTextEdit)
     }))
   };
 }
