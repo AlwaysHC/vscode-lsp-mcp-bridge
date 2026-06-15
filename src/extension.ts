@@ -28,6 +28,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
+      const choice = await vscode.window.showInformationMessage(
+        "Copy the Codex MCP config to the clipboard?",
+        { modal: true },
+        "Copy Config"
+      );
+      if (choice !== "Copy Config") {
+        return;
+      }
+
       await vscode.env.clipboard.writeText(snippet);
       vscode.window.showInformationMessage("Codex MCP config copied to clipboard.");
     })

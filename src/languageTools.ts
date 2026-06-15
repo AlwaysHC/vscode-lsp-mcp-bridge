@@ -36,6 +36,8 @@ export async function runLanguageTool(
       return normalizeDocumentHighlights(await executeAtPosition<vscode.DocumentHighlight[]>("vscode.executeDocumentHighlights", args));
     case "diagnostics":
       return diagnostics(args);
+    case "call_hierarchy_for_symbol":
+      return callHierarchyForSymbol(args);
     case "call_hierarchy":
       return callHierarchy(args);
     case "completion":
@@ -139,6 +141,19 @@ function optionalBooleanArg(args: Record<string, unknown>, key: string): boolean
   return value;
 }
 
+function optionalPositiveIntegerArg(args: Record<string, unknown>, key: string, defaultValue: number): number {
+  const value = args[key];
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new Error(`Expected optional positive integer argument: ${key}`);
+  }
+
+  return value;
+}
+
 function normalizeRange(range: vscode.Range): object {
   return {
     line: range.start.line + 1,
@@ -197,12 +212,16 @@ function normalizeDocumentSymbols(values: vscode.DocumentSymbol[] | undefined): 
 }
 
 function normalizeWorkspaceSymbols(values: vscode.SymbolInformation[] | undefined): object[] {
-  return (values ?? []).map(symbol => ({
+  return (values ?? []).map(normalizeWorkspaceSymbol);
+}
+
+function normalizeWorkspaceSymbol(symbol: vscode.SymbolInformation): object {
+  return {
     name: symbol.name,
     containerName: symbol.containerName,
     kind: vscode.SymbolKind[symbol.kind],
     ...normalizeLocation(symbol.location)
-  }));
+  };
 }
 
 function normalizeDocumentHighlights(values: vscode.DocumentHighlight[] | undefined): object[] {
@@ -238,6 +257,146 @@ async function diagnostics(args: Record<string, unknown>): Promise<object[]> {
 async function callHierarchy(args: Record<string, unknown>): Promise<object[]> {
   const uri = await openDocumentUri(stringArg(args, "file"));
   const position = positionArg(args);
+  return callHierarchyAt(uri, position);
+}
+
+async function callHierarchyForSymbol(args: Record<string, unknown>): Promise<object> {
+  const query = stringArg(args, "query");
+  const containerName = optionalStringArg(args, "containerName");
+  const file = optionalStringArg(args, "file");
+  const kind = optionalStringArg(args, "kind");
+  const maxCandidates = optionalPositiveIntegerArg(args, "maxCandidates", 10);
+  const rankedSymbols = rankWorkspaceSymbols(await workspaceSymbolsForQuery(query), {
+    query,
+    containerName,
+    file,
+    kind
+  });
+  const candidates = rankedSymbols.slice(0, maxCandidates);
+
+  for (const candidate of candidates) {
+    const hierarchy = await callHierarchyAt(candidate.symbol.location.uri, candidate.symbol.location.range.start);
+    if (hierarchy.length > 0) {
+      return {
+        query,
+        selectedSymbol: normalizeWorkspaceSymbol(candidate.symbol),
+        candidates: candidates.map(value => normalizeWorkspaceSymbol(value.symbol)),
+        callHierarchy: hierarchy
+      };
+    }
+  }
+
+  return {
+    query,
+    selectedSymbol: candidates[0] ? normalizeWorkspaceSymbol(candidates[0].symbol) : undefined,
+    candidates: candidates.map(value => normalizeWorkspaceSymbol(value.symbol)),
+    callHierarchy: []
+  };
+}
+
+async function workspaceSymbolsForQuery(query: string): Promise<vscode.SymbolInformation[]> {
+  const queryParts = query.split(".").filter(Boolean);
+  const queries = [query, queryParts[queryParts.length - 1]].filter(
+    (value, index, values): value is string => Boolean(value) && values.indexOf(value) === index
+  );
+  const symbols = new Map<string, vscode.SymbolInformation>();
+
+  for (const workspaceQuery of queries) {
+    const values = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+      "vscode.executeWorkspaceSymbolProvider",
+      workspaceQuery
+    );
+
+    for (const symbol of values ?? []) {
+      symbols.set(workspaceSymbolKey(symbol), symbol);
+    }
+  }
+
+  return [...symbols.values()];
+}
+
+function workspaceSymbolKey(symbol: vscode.SymbolInformation): string {
+  return [
+    symbol.name,
+    symbol.containerName,
+    symbol.location.uri.toString(),
+    symbol.location.range.start.line,
+    symbol.location.range.start.character
+  ].join("|");
+}
+
+function rankWorkspaceSymbols(
+  symbols: vscode.SymbolInformation[],
+  hints: { query: string; containerName?: string; file?: string; kind?: string }
+): Array<{ symbol: vscode.SymbolInformation; score: number }> {
+  const query = hints.query.toLowerCase();
+  const queryParts = hints.query.split(".").filter(Boolean);
+  const requestedName = (queryParts[queryParts.length - 1] ?? hints.query).toLowerCase();
+  const requestedContainer = (hints.containerName ?? queryParts.slice(0, -1).join(".")).toLowerCase();
+  const requestedFile = hints.file ? normalizePathForComparison(resolveFilePath(hints.file)) : undefined;
+  const requestedKind = hints.kind?.toLowerCase();
+
+  return symbols
+    .filter(symbol => {
+      if (requestedFile && normalizePathForComparison(symbol.location.uri.fsPath) !== requestedFile) {
+        return false;
+      }
+
+      if (hints.containerName && !symbol.containerName.toLowerCase().includes(hints.containerName.toLowerCase())) {
+        return false;
+      }
+
+      if (requestedKind && vscode.SymbolKind[symbol.kind].toLowerCase() !== requestedKind) {
+        return false;
+      }
+
+      return true;
+    })
+    .map(symbol => {
+      const name = symbol.name.toLowerCase();
+      const container = symbol.containerName.toLowerCase();
+      const symbolKind = vscode.SymbolKind[symbol.kind];
+      let score = 0;
+
+      if (name === requestedName) {
+        score += 120;
+      } else if (name.includes(requestedName) || requestedName.includes(name)) {
+        score += 60;
+      } else if (query.includes(name)) {
+        score += 20;
+      }
+
+      if (requestedContainer) {
+        if (container === requestedContainer) {
+          score += 100;
+        } else if (container.includes(requestedContainer) || requestedContainer.includes(container)) {
+          score += 50;
+        }
+      }
+
+      if (["Method", "Function", "Constructor"].includes(symbolKind)) {
+        score += 25;
+      }
+
+      if (requestedKind && symbolKind.toLowerCase() === requestedKind) {
+        score += 50;
+      }
+
+      return { symbol, score };
+    })
+    .sort((left, right) => right.score - left.score);
+}
+
+function resolveFilePath(file: string): string {
+  return path.isAbsolute(file) ? file : path.join(firstWorkspaceFolder(), file);
+}
+
+function normalizePathForComparison(file: string): string {
+  return path.normalize(file).toLowerCase();
+}
+
+async function callHierarchyAt(uri: vscode.Uri, position: vscode.Position): Promise<object[]> {
+  await vscode.workspace.openTextDocument(uri);
   const items = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
     "vscode.prepareCallHierarchy",
     uri,

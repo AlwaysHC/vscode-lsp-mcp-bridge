@@ -4,6 +4,16 @@ Tool inputs use one-based editor `line` and `column` values.
 
 Tool results are compact for LLM use and use the same one-based editor `line` and `column` values.
 
+## Tool Choice Guidance
+
+Use these tools as the primary source for semantic code navigation in the active VS Code workspace.
+
+For references, definitions, implementations, callers/callees, diagnostics, hover, rename, and symbol lookup, use this MCP server before shell commands, `rg`/`grep`, or raw file search.
+
+If the exact symbol position is unknown, use `workspace_symbols` or `document_symbols` first, then call the position-based tool with the returned `line` and `column`.
+
+Do not use text search as a cross-check unless the user asks for text search or the language provider fails.
+
 ```json
 {
   "file": "D:\\MyProgs\\C#\\DigitalAGoGo\\Aquarius\\Backend\\Controllers\\AgendasController.cs",
