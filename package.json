@@ -89,8 +89,11 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p ./ --noEmit",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=esm --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap",
+    "compile": "npm run clean && npm run typecheck && npm run bundle",
+    "watch": "esbuild src/extension.ts --bundle --platform=node --format=esm --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap --watch",
     "vscode:prepublish": "npm run compile",
     "package": "vsce package",
     "publish": "vsce publish"
@@ -103,6 +106,7 @@
     "@types/node": "^22.15.0",
     "@types/vscode": "^1.100.0",
     "@vscode/vsce": "^3.4.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.8.0"
   }
 }

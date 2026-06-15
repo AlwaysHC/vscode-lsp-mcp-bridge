@@ -1,6 +1,20 @@
 # Tool Catalog
 
-All positions use zero-based `line` and `character` values, matching the VS Code API.
+Tool inputs use one-based editor `line` and `column` values.
+
+Tool results are compact for LLM use and use the same one-based editor `line` and `column` values.
+
+```json
+{
+  "file": "D:\\MyProgs\\C#\\DigitalAGoGo\\Aquarius\\Backend\\Controllers\\AgendasController.cs",
+  "line": 242,
+  "column": 25,
+  "endLine": 242,
+  "endColumn": 44
+}
+```
+
+Use `line` and `column` values in user-facing answers.
 
 ## Position Tools
 
@@ -10,7 +24,7 @@ Input:
 {
   "file": "absolute/or/workspace/relative/path.cs",
   "line": 10,
-  "character": 15
+  "column": 15
 }
 ```
 
@@ -81,7 +95,7 @@ If `file` is omitted, diagnostics for all open/workspace-tracked documents are r
 {
   "file": "path.cs",
   "line": 10,
-  "character": 15,
+  "column": 15,
   "newName": "NewSymbolName",
   "apply": false
 }
@@ -101,4 +115,3 @@ Applying edits requires:
 ```json
 "vscodeLspMcpBridge.enableWriteTools": true
 ```
-

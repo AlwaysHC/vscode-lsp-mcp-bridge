@@ -25,7 +25,7 @@ export interface BridgeToolResponse {
 export interface PositionInput {
   file: string;
   line: number;
-  character: number;
+  column: number;
 }
 
 export interface DocumentInput {
@@ -44,4 +44,3 @@ export interface RenameInput extends PositionInput {
 export interface FormatInput extends DocumentInput {
   apply?: boolean;
 }
-

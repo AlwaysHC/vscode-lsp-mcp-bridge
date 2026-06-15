@@ -7,7 +7,7 @@
 3. Add repository URL.
 4. Confirm all marketplace text states that a localhost bridge is started.
 5. Keep write tools disabled by default.
-6. Confirm runtime dependencies are included in the VSIX or bundled.
+6. Confirm runtime dependencies are bundled into `dist/extension.js`.
 7. Run a clean package build.
 
 ```powershell

@@ -11,7 +11,8 @@ export function createLanguageMcpServer(allowWrites: () => boolean): McpServer {
     {
       instructions: [
         "Use these tools for semantic code navigation through the active VS Code workspace.",
-        "Positions are zero-based line and character offsets.",
+        "Tool inputs and results use one-based editor line and column values.",
+        "Tool results are compact for LLM use: use file, line, and column directly in user-facing answers and follow-up tool calls.",
         "Write-capable tools only apply edits when the VS Code setting vscodeLspMcpBridge.enableWriteTools is true."
       ].join(" ")
     }
@@ -48,4 +49,3 @@ export function createLanguageMcpServer(allowWrites: () => boolean): McpServer {
 
   return server;
 }
-

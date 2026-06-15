@@ -36,6 +36,8 @@ This means it can work with any language provider that implements those VS Code 
 
 The MCP server runs inside the VS Code extension host. It registers tools from `src/mcp/toolDefinitions.ts` through `src/mcp/createLanguageMcpServer.ts`, then serves them through `StreamableHTTPServerTransport`.
 
+The published VSIX bundles runtime dependencies into `dist/extension.js`. Final users do not need Node.js or `node_modules`.
+
 Clients connect directly:
 
 ```toml

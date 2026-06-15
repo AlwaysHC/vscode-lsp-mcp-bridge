@@ -10,8 +10,8 @@ export interface ToolDefinition {
 
 const positionSchema = {
   file: z.string().describe("Absolute or workspace-relative file path."),
-  line: z.number().int().nonnegative().describe("Zero-based line number."),
-  character: z.number().int().nonnegative().describe("Zero-based character offset.")
+  line: z.number().int().positive().describe("One-based editor line number."),
+  column: z.number().int().positive().describe("One-based editor column number.")
 };
 
 const documentSchema = {
@@ -178,4 +178,3 @@ export const toolDefinitions: ToolDefinition[] = [
     readOnly: false
   }
 ];
-
