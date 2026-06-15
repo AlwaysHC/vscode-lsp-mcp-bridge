@@ -12,6 +12,15 @@ interface SymbolHints {
   kind?: string;
 }
 
+interface WriteApprovalRequest {
+  toolName: string;
+  operation: string;
+  files: vscode.Uri[];
+  actionTitle?: string;
+  command?: vscode.Command;
+  editCount?: number;
+}
+
 type CodeActionLike = vscode.CodeAction | vscode.Command;
 
 export async function runLanguageTool(
@@ -84,9 +93,9 @@ export async function runLanguageTool(
     case "apply_code_action":
       return applyCodeAction(args, options);
     case "organize_imports":
-      return sourceAction(args, options, vscode.CodeActionKind.SourceOrganizeImports.value);
+      return sourceAction(args, options, vscode.CodeActionKind.SourceOrganizeImports.value, "organize_imports");
     case "fix_all":
-      return sourceAction(args, options, vscode.CodeActionKind.SourceFixAll.value);
+      return sourceAction(args, options, vscode.CodeActionKind.SourceFixAll.value, "fix_all");
     case "format_document":
       return formatDocument(args, options);
     case "format_range":
@@ -1013,9 +1022,19 @@ function normalizeCommand(command: vscode.Command | undefined): object | undefin
 
 async function applyCodeAction(args: Record<string, unknown>, options: ToolOptions): Promise<object> {
   ensureWritesAllowed(options);
+  const fallbackUri = await openDocumentUri(stringArg(args, "file"));
   const actions = await getCodeActions(args);
   const selected = selectCodeAction(actions, args);
-  const applied = await applySelectedCodeAction(selected, optionalBooleanArg(args, "executeCommand", true));
+  const applied = await applySelectedCodeAction(
+    selected,
+    optionalBooleanArg(args, "executeCommand", true),
+    {
+      toolName: "apply_code_action",
+      operation: "Apply code action",
+      files: [fallbackUri],
+      actionTitle: selected.action.title
+    }
+  );
   return {
     ...applied,
     selectedAction: normalizeCodeAction(selected.action, selected.index)
@@ -1025,7 +1044,8 @@ async function applyCodeAction(args: Record<string, unknown>, options: ToolOptio
 async function sourceAction(
   args: Record<string, unknown>,
   options: ToolOptions,
-  kind: string
+  kind: string,
+  toolName: string
 ): Promise<object> {
   const actionArgs = { ...args, kind };
   const actions = await getCodeActions(actionArgs);
@@ -1037,8 +1057,18 @@ async function sourceAction(
   }
 
   ensureWritesAllowed(options);
+  const fallbackUri = await openDocumentUri(stringArg(args, "file"));
   const selected = selectCodeAction(actions, actionArgs);
-  const applied = await applySelectedCodeAction(selected, optionalBooleanArg(args, "executeCommand", true));
+  const applied = await applySelectedCodeAction(
+    selected,
+    optionalBooleanArg(args, "executeCommand", true),
+    {
+      toolName,
+      operation: `Apply ${kind}`,
+      files: [fallbackUri],
+      actionTitle: selected.action.title
+    }
+  );
   return {
     ...applied,
     selectedAction: normalizeCodeAction(selected.action, selected.index)
@@ -1067,19 +1097,35 @@ function selectCodeAction(actions: CodeActionLike[], args: Record<string, unknow
 
 async function applySelectedCodeAction(
   selected: { action: CodeActionLike; index: number },
-  executeCommand: boolean
-): Promise<{ appliedEdit: boolean; executedCommand: boolean }> {
+  executeCommand: boolean,
+  approval: WriteApprovalRequest
+): Promise<{ approved: boolean; appliedEdit: boolean; executedCommand: boolean }> {
   const { action } = selected;
-  const appliedEdit = isCodeAction(action) && action.edit ? await vscode.workspace.applyEdit(action.edit) : false;
-  let executedCommand = false;
+  const edit = isCodeAction(action) ? action.edit : undefined;
   const command = isCodeAction(action) ? action.command : action;
+  const commandToExecute = executeCommand ? command : undefined;
+  const needsApproval = Boolean(edit || commandToExecute);
+  if (needsApproval) {
+    const approved = await requestWriteApproval({
+      ...approval,
+      files: [...affectedFilesFromWorkspaceEdit(edit), ...approval.files],
+      command: commandToExecute,
+      editCount: edit?.size ?? 0
+    });
+    if (!approved) {
+      return { approved: false, appliedEdit: false, executedCommand: false };
+    }
+  }
 
-  if (executeCommand && command) {
-    await vscode.commands.executeCommand(command.command, ...(command.arguments ?? []));
+  const appliedEdit = edit ? await vscode.workspace.applyEdit(edit) : false;
+  let executedCommand = false;
+
+  if (commandToExecute) {
+    await vscode.commands.executeCommand(commandToExecute.command, ...(commandToExecute.arguments ?? []));
     executedCommand = true;
   }
 
-  return { appliedEdit, executedCommand };
+  return { approved: true, appliedEdit, executedCommand };
 }
 
 async function formatDocument(args: Record<string, unknown>, options: ToolOptions): Promise<object> {
@@ -1090,7 +1136,7 @@ async function formatDocument(args: Record<string, unknown>, options: ToolOption
     formattingOptions(args)
   );
 
-  return previewOrApplyTextEdits(uri, edits ?? [], args, options);
+  return previewOrApplyTextEdits(uri, edits ?? [], args, options, "format_document");
 }
 
 async function formatRange(args: Record<string, unknown>, options: ToolOptions): Promise<object> {
@@ -1102,7 +1148,7 @@ async function formatRange(args: Record<string, unknown>, options: ToolOptions):
     formattingOptions(args)
   );
 
-  return previewOrApplyTextEdits(uri, edits ?? [], args, options);
+  return previewOrApplyTextEdits(uri, edits ?? [], args, options, "format_range");
 }
 
 async function formatOnType(args: Record<string, unknown>, options: ToolOptions): Promise<object> {
@@ -1115,14 +1161,15 @@ async function formatOnType(args: Record<string, unknown>, options: ToolOptions)
     formattingOptions(args)
   );
 
-  return previewOrApplyTextEdits(uri, edits ?? [], args, options);
+  return previewOrApplyTextEdits(uri, edits ?? [], args, options, "format_on_type");
 }
 
 async function previewOrApplyTextEdits(
   uri: vscode.Uri,
   edits: vscode.TextEdit[],
   args: Record<string, unknown>,
-  options: ToolOptions
+  options: ToolOptions,
+  toolName: string
 ): Promise<object> {
   const normalized = edits.map(normalizeTextEdit);
   if (optionalBooleanArg(args, "apply")) {
@@ -1131,8 +1178,18 @@ async function previewOrApplyTextEdits(
     for (const edit of edits) {
       workspaceEdit.replace(uri, edit.range, edit.newText);
     }
+    const approved = await requestWriteApproval({
+      toolName,
+      operation: "Apply formatting edits",
+      files: [uri],
+      editCount: edits.length
+    });
+    if (!approved) {
+      return { approved: false, applied: false, edits: normalized };
+    }
+
     const applied = await vscode.workspace.applyEdit(workspaceEdit);
-    return { applied, edits: normalized };
+    return { approved: true, applied, edits: normalized };
   }
 
   return { applied: false, edits: normalized };
@@ -1154,8 +1211,18 @@ async function rename(
   const apply = optionalBooleanArg(args, "apply") && !options.forcePreviewOnly;
   if (apply) {
     ensureWritesAllowed(options);
+    const approved = await requestWriteApproval({
+      toolName: "rename_symbol",
+      operation: `Rename symbol to "${stringArg(args, "newName")}"`,
+      files: [...affectedFilesFromWorkspaceEdit(edit), uri],
+      editCount: edit?.size ?? 0
+    });
+    if (!approved) {
+      return { approved: false, applied: false, edit: normalized };
+    }
+
     const applied = edit ? await vscode.workspace.applyEdit(edit) : false;
-    return { applied, edit: normalized };
+    return { approved: true, applied, edit: normalized };
   }
 
   return { applied: false, edit: normalized };
@@ -1180,6 +1247,55 @@ function ensureWritesAllowed(options: ToolOptions): void {
   if (!options.allowWrites) {
     throw new Error("Write tools are disabled. Enable vscodeLspMcpBridge.enableWriteTools to apply edits.");
   }
+}
+
+async function requestWriteApproval(request: WriteApprovalRequest): Promise<boolean> {
+  const files = uniqueUris(request.files);
+  const fileLines = files.length > 0
+    ? files.slice(0, 10).map(uri => `- ${formatUriForApproval(uri)}`)
+    : ["- No affected file reported by the provider"];
+  const remainingFiles = files.length > 10 ? `\n- ...and ${files.length - 10} more` : "";
+  const details = [
+    `Tool: ${request.toolName}`,
+    `Operation: ${request.operation}`,
+    request.actionTitle ? `Action: ${request.actionTitle}` : undefined,
+    `Text edit groups: ${request.editCount ?? 0}`,
+    request.command ? `Command: ${request.command.title} (${request.command.command})` : undefined,
+    `Affected files:\n${fileLines.join("\n")}${remainingFiles}`
+  ].filter((value): value is string => Boolean(value)).join("\n\n");
+
+  const choice = await vscode.window.showWarningMessage(
+    `Allow MCP write tool "${request.toolName}" to apply changes?`,
+    {
+      modal: true,
+      detail: details
+    },
+    "Apply Changes"
+  );
+
+  return choice === "Apply Changes";
+}
+
+function uniqueUris(uris: vscode.Uri[]): vscode.Uri[] {
+  const seen = new Set<string>();
+  const result = [];
+  for (const uri of uris) {
+    const key = uri.toString();
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(uri);
+    }
+  }
+
+  return result;
+}
+
+function affectedFilesFromWorkspaceEdit(edit: vscode.WorkspaceEdit | undefined): vscode.Uri[] {
+  return edit?.entries().map(([uri]) => uri) ?? [];
+}
+
+function formatUriForApproval(uri: vscode.Uri): string {
+  return uri.scheme === "file" ? vscode.workspace.asRelativePath(uri, false) : uri.toString(true);
 }
 
 function normalizeTextEdit(edit: vscode.TextEdit): object {

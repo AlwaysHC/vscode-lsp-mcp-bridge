@@ -16,7 +16,7 @@ export function createLanguageMcpServer(allowWrites: () => boolean): McpServer {
         "Do not use text search as a cross-check unless the user asks for text search or the language provider fails; state any fallback clearly.",
         "Tool inputs and results use one-based editor line and column values.",
         "Tool results are compact for LLM use: use file, line, and column directly in user-facing answers and follow-up tool calls.",
-        "Write-capable tools only apply edits when the VS Code setting vscodeLspMcpBridge.enableWriteTools is true."
+        "Write-capable tools only apply edits when the VS Code setting vscodeLspMcpBridge.enableWriteTools is true and the user approves the VS Code modal confirmation."
       ].join(" ")
     }
   );

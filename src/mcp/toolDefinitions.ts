@@ -37,7 +37,7 @@ const optionalRangeSchema = {
 const formattingSchema = {
   tabSize: z.number().int().positive().optional().describe("Formatting tab size. Defaults to 4."),
   insertSpaces: z.boolean().optional().describe("Use spaces instead of tabs. Defaults to true."),
-  apply: z.boolean().optional().describe("Apply the edits. Requires write tools to be enabled.")
+  apply: z.boolean().optional().describe("Apply the edits. Requires write tools to be enabled and a VS Code user approval.")
 };
 
 const codeActionSchema = {
@@ -56,7 +56,7 @@ const applyCodeActionSchema = {
 
 const sourceActionSchema = {
   ...documentSchema,
-  apply: z.boolean().optional().describe("Apply the selected source action. Requires write tools to be enabled."),
+  apply: z.boolean().optional().describe("Apply the selected source action. Requires write tools to be enabled and a VS Code user approval."),
   actionIndex: z.number().int().positive().optional().describe("One-based source action index. Defaults to 1."),
   title: z.string().optional().describe("Optional source action title filter."),
   exactTitle: z.boolean().optional().describe("Require exact title match instead of substring match."),
@@ -295,28 +295,28 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "apply_code_action",
     title: "Apply Code Action",
-    description: "Apply a selected language-provider code action by index or title. Requires write tools to be enabled.",
+    description: "Apply a selected language-provider code action by index or title. Requires write tools to be enabled and a VS Code user approval.",
     inputSchema: applyCodeActionSchema,
     readOnly: false
   },
   {
     name: "organize_imports",
     title: "Organize Imports",
-    description: "Preview or apply the source.organizeImports code action. In C# this maps to organize usings when provided by Roslyn.",
+    description: "Preview or apply the source.organizeImports code action. Applying requires write tools to be enabled and a VS Code user approval. In C# this maps to organize usings when provided by Roslyn.",
     inputSchema: sourceActionSchema,
     readOnly: false
   },
   {
     name: "fix_all",
     title: "Fix All",
-    description: "Preview or apply the source.fixAll code action when provided by the language provider.",
+    description: "Preview or apply the source.fixAll code action when provided by the language provider. Applying requires write tools to be enabled and a VS Code user approval.",
     inputSchema: sourceActionSchema,
     readOnly: false
   },
   {
     name: "format_document",
     title: "Format Document",
-    description: "Preview or apply document formatting edits.",
+    description: "Preview or apply document formatting edits. Applying requires write tools to be enabled and a VS Code user approval.",
     inputSchema: {
       ...documentSchema,
       ...formattingSchema
@@ -326,7 +326,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "format_range",
     title: "Format Range",
-    description: "Preview or apply range formatting edits.",
+    description: "Preview or apply range formatting edits. Applying requires write tools to be enabled and a VS Code user approval.",
     inputSchema: {
       ...rangeSchema,
       ...formattingSchema
@@ -336,7 +336,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "format_on_type",
     title: "Format On Type",
-    description: "Preview or apply on-type formatting edits for a trigger character at a file position.",
+    description: "Preview or apply on-type formatting edits for a trigger character at a file position. Applying requires write tools to be enabled and a VS Code user approval.",
     inputSchema: {
       ...positionSchema,
       triggerCharacter: z.string().describe("Formatting trigger character."),
@@ -364,11 +364,11 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "rename_symbol",
     title: "Rename Symbol",
-    description: "Preview or apply a semantic symbol rename. Applying requires write tools to be enabled.",
+    description: "Preview or apply a semantic symbol rename. Applying requires write tools to be enabled and a VS Code user approval.",
     inputSchema: {
       ...positionSchema,
       newName: z.string().describe("New symbol name."),
-      apply: z.boolean().optional().describe("Apply the rename. Requires write tools to be enabled.")
+      apply: z.boolean().optional().describe("Apply the rename. Requires write tools to be enabled and a VS Code user approval.")
     },
     readOnly: false
   }

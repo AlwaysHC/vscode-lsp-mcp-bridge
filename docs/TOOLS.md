@@ -111,11 +111,13 @@ Range fields are optional for `inlay_hints`, `code_actions`, and `inline_values`
 
 ## Write Tools
 
-Write tools preview by default where practical. Applying edits requires:
+Write tools preview by default where practical. Applying edits requires both the global setting:
 
 ```json
 "vscodeLspMcpBridge.enableWriteTools": true
 ```
+
+and a per-operation VS Code modal approval. The approval dialog shows the MCP tool name, operation, selected action or command when present, edit count, and affected files reported by the language provider.
 
 Write-capable tools:
 

@@ -64,7 +64,7 @@ Write-capable tools:
 - `format_on_type`
 - `rename_symbol` with `apply: true`
 
-Write behavior is disabled by default with `vscodeLspMcpBridge.enableWriteTools: false`.
+Write behavior is disabled by default with `vscodeLspMcpBridge.enableWriteTools: false`. When enabled, each actual write still requires a VS Code modal approval showing the tool name and affected files.
 
 ## Development
 
@@ -109,6 +109,7 @@ VS Code must be running with the target workspace open, and the bridge must be s
 - Refuses to start in untrusted workspaces.
 - Exposes read-only tools by default.
 - Keeps rename and formatting application disabled unless explicitly enabled.
+- Requires per-operation VS Code approval before applying write-tool edits.
 - Does not expose shell execution.
 
 See [docs/SECURITY.md](docs/SECURITY.md).
