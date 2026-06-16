@@ -21,8 +21,8 @@ End users do not need to install Node.js. Node/npm are development-time tools on
 1. Install the extension from the Visual Studio Marketplace.
 2. Open the workspace you want an AI coding tool to inspect.
 3. Make sure the relevant language extension is loaded and working in VS Code.
-4. Run `LSP MCP Bridge: Show Status` from the Command Palette.
-5. Run `LSP MCP Bridge: Copy MCP Client Config`.
+4. For VS Code/GitHub Copilot, use the automatically registered `VS Code LSP MCP Bridge` server from VS Code's MCP UI.
+5. For Codex, Claude Code, or another MCP client, run `LSP MCP Bridge: Copy MCP Client Config`.
 6. Choose your client: Codex, VS Code/GitHub Copilot, Claude Code, or Generic HTTP MCP Client.
 7. Run `LSP MCP Bridge: Open MCP Client Config File` if you want the extension to open a common target config file for you.
 8. Paste the copied config into that client and restart or reload the client if needed.
@@ -41,6 +41,12 @@ For client-specific setup, run `LSP MCP Bridge: Copy MCP Client Config` and choo
 When several VS Code windows are open, the first bridge owns the stable local gateway endpoint. Other windows register behind that gateway, so your MCP client configuration can keep using the same URL. Run `LSP MCP Bridge: Use This Workspace` in the window you want new MCP sessions to inspect.
 
 Default config file locations are listed in [docs/CLIENTS.md](docs/CLIENTS.md).
+
+## VS Code Auto Registration
+
+The extension registers an MCP server definition provider with VS Code. VS Code and GitHub Copilot can discover `VS Code LSP MCP Bridge` without a `.vscode/mcp.json` entry; when VS Code starts that server, the extension starts the local bridge if needed and supplies the bearer token header.
+
+This auto-registration is only for VS Code's MCP host. Codex and Claude Code do not read VS Code extension-provided MCP server definitions, so they still need their own MCP configuration. Use `LSP MCP Bridge: Copy MCP Client Config` for those clients.
 
 ## Supported Languages
 

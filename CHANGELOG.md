@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6
+
+- Registers an MCP server definition provider so VS Code/GitHub Copilot can discover the bridge without manual `mcp.json` setup.
+- Documents that VS Code auto-registration does not configure Codex, Claude Code, or other external MCP clients.
+
+## 0.1.5
+
+- Removes the Marketplace Preview flag from the extension manifest.
+
 ## 0.1.4
 
 - Shows the extension version in the bridge status message.

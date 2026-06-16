@@ -195,6 +195,19 @@ export class BridgeHttpServer {
     }
   }
 
+  getVsCodeMcpServerDefinition(): vscode.McpHttpServerDefinition {
+    const { host, port, token } = this.currentConnectionValues();
+
+    return new vscode.McpHttpServerDefinition(
+      "VS Code LSP MCP Bridge",
+      vscode.Uri.parse(`http://${host}:${port}/mcp`),
+      {
+        Authorization: `Bearer ${token}`
+      },
+      this.extensionVersion()
+    );
+  }
+
   private getCodexConfigSnippet(): string {
     const { host, port, token } = this.currentConnectionValues();
 
@@ -254,8 +267,9 @@ export class BridgeHttpServer {
   }
 
   private currentConnectionValues(): { host: string; port: number; token: string } {
-    const host = this.connectionInfo?.host ?? DEFAULT_HOST;
-    const port = this.connectionInfo?.port ?? DEFAULT_PORT;
+    const config = vscode.workspace.getConfiguration("vscodeLspMcpBridge");
+    const host = this.connectionInfo?.host ?? config.get<string>("host", DEFAULT_HOST);
+    const port = this.connectionInfo?.port ?? config.get<number>("port", DEFAULT_PORT);
     const token = this.connectionInfo?.token ?? "<start-the-bridge-first>";
 
     return { host, port, token };

@@ -2,12 +2,12 @@
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "VS Code LSP MCP Bridge",
   "description": "Expose VS Code language intelligence as a local MCP server for AI coding tools.",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "type": "module",
   "publisher": "georgiana-alba",
   "license": "MIT",
   "icon": "resources/icon.png",
-  "preview": true,
+  "preview": false,
   "pricing": "Free",
   "galleryBanner": {
     "color": "#101820",
@@ -57,6 +57,12 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "vscode-lsp-mcp-bridge.provider",
+        "label": "VS Code LSP MCP Bridge"
+      }
+    ],
     "commands": [
       {
         "command": "vscode-lsp-mcp-bridge.start",

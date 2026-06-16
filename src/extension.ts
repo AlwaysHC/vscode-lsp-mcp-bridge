@@ -6,6 +6,8 @@ import { BridgeHttpServer } from "./bridgeHttpServer.js";
 
 let bridge: BridgeHttpServer | undefined;
 
+const mcpServerDefinitionProviderId = "vscode-lsp-mcp-bridge.provider";
+
 type ClientConfigId = "codex" | "vscode-copilot" | "claude-code" | "generic";
 
 interface ClientConfigOption extends vscode.QuickPickItem {
@@ -113,6 +115,7 @@ const clientConfigFileOptions: ClientConfigFileOption[] = [
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   bridge = new BridgeHttpServer(context);
+  registerMcpServerDefinitionProvider(context, bridge);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.start", async () => {
@@ -218,6 +221,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export async function deactivate(): Promise<void> {
   await bridge?.stop();
+}
+
+function registerMcpServerDefinitionProvider(
+  context: vscode.ExtensionContext,
+  bridgeServer: BridgeHttpServer
+): void {
+  const definitionsChanged = new vscode.EventEmitter<void>();
+
+  context.subscriptions.push(
+    definitionsChanged,
+    vscode.workspace.onDidChangeConfiguration(event => {
+      if (
+        event.affectsConfiguration("vscodeLspMcpBridge.host") ||
+        event.affectsConfiguration("vscodeLspMcpBridge.port")
+      ) {
+        definitionsChanged.fire();
+      }
+    }),
+    vscode.lm.registerMcpServerDefinitionProvider(mcpServerDefinitionProviderId, {
+      onDidChangeMcpServerDefinitions: definitionsChanged.event,
+      provideMcpServerDefinitions: () => [bridgeServer.getVsCodeMcpServerDefinition()],
+      resolveMcpServerDefinition: async server => {
+        await bridgeServer.start();
+        return bridgeServer.getVsCodeMcpServerDefinition();
+      }
+    })
+  );
 }
 
 function homePath(...segments: string[]): string {
