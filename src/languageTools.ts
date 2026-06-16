@@ -12,6 +12,12 @@ interface SymbolHints {
   kind?: string;
 }
 
+interface ResolvedSymbolQuery {
+  query: string;
+  selectedSymbol?: vscode.SymbolInformation;
+  candidates: vscode.SymbolInformation[];
+}
+
 interface WriteApprovalRequest {
   toolName: string;
   operation: string;
@@ -31,10 +37,16 @@ export async function runLanguageTool(
   options: ToolOptions
 ): Promise<unknown> {
   switch (name) {
+    case "semantic_navigation_guide":
+      return semanticNavigationGuide();
     case "find_references":
       return locationsWithSourceLines(await executeAtPosition<vscode.Location[]>("vscode.executeReferenceProvider", args));
+    case "find_references_for_symbol":
+      return referencesForSymbol(args);
     case "go_to_definition":
       return locationsWithSourceLines(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeDefinitionProvider", args));
+    case "find_definition_for_symbol":
+      return definitionForSymbol(args);
     case "go_to_declaration":
       return locationsWithSourceLines(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeDeclarationProvider", args));
     case "go_to_implementation":
@@ -58,6 +70,10 @@ export async function runLanguageTool(
       return normalizeDocumentHighlights(await executeAtPosition<vscode.DocumentHighlight[]>("vscode.executeDocumentHighlights", args));
     case "diagnostics":
       return diagnostics(args);
+    case "find_callers_for_symbol":
+      return callRelationshipsForSymbol(args, "incoming");
+    case "find_callees_for_symbol":
+      return callRelationshipsForSymbol(args, "outgoing");
     case "call_hierarchy_for_symbol":
       return hierarchyForSymbol(args, "call");
     case "call_hierarchy":
@@ -113,6 +129,28 @@ export async function runLanguageTool(
     default:
       throw new Error(`Unknown language tool: ${name}`);
   }
+}
+
+function semanticNavigationGuide(): object {
+  return {
+    purpose: "Use VS Code language providers for semantic code navigation before text search.",
+    primaryRules: [
+      "For 'who calls X', 'incoming calls', 'callers', or call-site questions with a known symbol name, call find_callers_for_symbol first.",
+      "For 'what does X call', 'outgoing calls', or callees with a known symbol name, call find_callees_for_symbol first.",
+      "For symbol references by name, call find_references_for_symbol first. Use find_references only when you already have file, line, and column.",
+      "For definitions by name, call find_definition_for_symbol first. Use go_to_definition only when you already have file, line, and column.",
+      "For type hierarchy by name, call type_hierarchy_for_symbol first.",
+      "Use workspace_symbols or document_symbols to resolve ambiguous names before falling back to rg, grep, or raw file search."
+    ],
+    fallbackRules: [
+      "Use text search only when the user asks for text mentions, the language provider returns no usable semantic result, or the file is not language-provider backed.",
+      "When falling back to text search, say that it is a fallback rather than a semantic result."
+    ],
+    resultUsage: [
+      "Tool results use one-based editor line and column values.",
+      "Prefer returned file, line, column, and sourceLine fields directly in user-facing answers."
+    ]
+  };
 }
 
 async function executeAtPosition<T>(command: string, args: Record<string, unknown>): Promise<T | undefined> {
@@ -460,7 +498,7 @@ async function diagnostics(args: Record<string, unknown>): Promise<object[]> {
   }));
 }
 
-async function hierarchyForSymbol(args: Record<string, unknown>, mode: "call" | "type"): Promise<object> {
+async function resolveWorkspaceSymbolQuery(args: Record<string, unknown>): Promise<ResolvedSymbolQuery> {
   const query = stringArg(args, "query");
   const hints = {
     query,
@@ -470,25 +508,74 @@ async function hierarchyForSymbol(args: Record<string, unknown>, mode: "call" | 
   };
   const maxCandidates = optionalPositiveIntegerArg(args, "maxCandidates", 10);
   const candidates = rankWorkspaceSymbols(await workspaceSymbolsForQuery(query), hints).slice(0, maxCandidates);
+  return {
+    query,
+    selectedSymbol: candidates[0]?.symbol,
+    candidates: candidates.map(value => value.symbol)
+  };
+}
 
-  for (const candidate of candidates) {
+async function referencesForSymbol(args: Record<string, unknown>): Promise<object> {
+  const resolved = await resolveWorkspaceSymbolQuery(args);
+  const references = resolved.selectedSymbol
+    ? await locationsWithSourceLines(
+        await executeAtResolvedSymbol<vscode.Location[]>("vscode.executeReferenceProvider", resolved.selectedSymbol)
+      )
+    : [];
+
+  return {
+    query: resolved.query,
+    selectedSymbol: resolved.selectedSymbol ? normalizeWorkspaceSymbol(resolved.selectedSymbol) : undefined,
+    candidates: resolved.candidates.map(normalizeWorkspaceSymbol),
+    references
+  };
+}
+
+async function definitionForSymbol(args: Record<string, unknown>): Promise<object> {
+  const resolved = await resolveWorkspaceSymbolQuery(args);
+  const definitions = resolved.selectedSymbol
+    ? await locationsWithSourceLines(
+        await executeAtResolvedSymbol<Array<vscode.Location | vscode.LocationLink>>(
+          "vscode.executeDefinitionProvider",
+          resolved.selectedSymbol
+        )
+      )
+    : [];
+
+  return {
+    query: resolved.query,
+    selectedSymbol: resolved.selectedSymbol ? normalizeWorkspaceSymbol(resolved.selectedSymbol) : undefined,
+    candidates: resolved.candidates.map(normalizeWorkspaceSymbol),
+    definitions
+  };
+}
+
+async function executeAtResolvedSymbol<T>(command: string, symbol: vscode.SymbolInformation): Promise<T | undefined> {
+  await vscode.workspace.openTextDocument(symbol.location.uri);
+  return vscode.commands.executeCommand<T>(command, symbol.location.uri, symbol.location.range.start);
+}
+
+async function hierarchyForSymbol(args: Record<string, unknown>, mode: "call" | "type"): Promise<object> {
+  const resolved = await resolveWorkspaceSymbolQuery(args);
+
+  for (const candidate of resolved.candidates) {
     const hierarchy = mode === "call"
-      ? await callHierarchyAt(candidate.symbol.location.uri, candidate.symbol.location.range.start)
-      : await typeHierarchyAt(candidate.symbol.location.uri, candidate.symbol.location.range.start);
+      ? await callHierarchyAt(candidate.location.uri, candidate.location.range.start)
+      : await typeHierarchyAt(candidate.location.uri, candidate.location.range.start);
     if (hierarchy.length > 0) {
       return {
-        query,
-        selectedSymbol: normalizeWorkspaceSymbol(candidate.symbol),
-        candidates: candidates.map(value => normalizeWorkspaceSymbol(value.symbol)),
+        query: resolved.query,
+        selectedSymbol: normalizeWorkspaceSymbol(candidate),
+        candidates: resolved.candidates.map(normalizeWorkspaceSymbol),
         [mode === "call" ? "callHierarchy" : "typeHierarchy"]: hierarchy
       };
     }
   }
 
   return {
-    query,
-    selectedSymbol: candidates[0] ? normalizeWorkspaceSymbol(candidates[0].symbol) : undefined,
-    candidates: candidates.map(value => normalizeWorkspaceSymbol(value.symbol)),
+    query: resolved.query,
+    selectedSymbol: resolved.selectedSymbol ? normalizeWorkspaceSymbol(resolved.selectedSymbol) : undefined,
+    candidates: resolved.candidates.map(normalizeWorkspaceSymbol),
     [mode === "call" ? "callHierarchy" : "typeHierarchy"]: []
   };
 }
@@ -588,6 +675,89 @@ function rankWorkspaceSymbols(
 
 function normalizePathForComparison(file: string): string {
   return path.normalize(file).toLowerCase();
+}
+
+async function callRelationshipsForSymbol(args: Record<string, unknown>, direction: "incoming" | "outgoing"): Promise<object> {
+  const resolved = await resolveWorkspaceSymbolQuery(args);
+  const relationships = resolved.selectedSymbol
+    ? await callRelationshipsAt(resolved.selectedSymbol.location.uri, resolved.selectedSymbol.location.range.start, direction)
+    : [];
+  const relationshipKey = direction === "incoming" ? "callers" : "callees";
+
+  return {
+    query: resolved.query,
+    selectedSymbol: resolved.selectedSymbol ? normalizeWorkspaceSymbol(resolved.selectedSymbol) : undefined,
+    candidates: resolved.candidates.map(normalizeWorkspaceSymbol),
+    [relationshipKey]: relationships
+  };
+}
+
+async function callRelationshipsAt(
+  uri: vscode.Uri,
+  position: vscode.Position,
+  direction: "incoming" | "outgoing"
+): Promise<object[]> {
+  await vscode.workspace.openTextDocument(uri);
+  const items = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
+    "vscode.prepareCallHierarchy",
+    uri,
+    position
+  );
+  const result: object[] = [];
+
+  for (const item of items ?? []) {
+    if (direction === "incoming") {
+      const incoming = await vscode.commands.executeCommand<vscode.CallHierarchyIncomingCall[]>(
+        "vscode.provideIncomingCalls",
+        item
+      );
+
+      for (const call of incoming ?? []) {
+        for (const range of call.fromRanges) {
+          result.push({
+            callerName: call.from.name,
+            callerDetail: call.from.detail,
+            callerKind: vscode.SymbolKind[call.from.kind],
+            callerFile: call.from.uri.fsPath,
+            callerLine: call.from.selectionRange.start.line + 1,
+            callerColumn: call.from.selectionRange.start.character + 1,
+            caller: normalizeCallHierarchyItem(call.from),
+            callSite: await normalizeCallSite(call.from.uri, range)
+          });
+        }
+      }
+    } else {
+      const outgoing = await vscode.commands.executeCommand<vscode.CallHierarchyOutgoingCall[]>(
+        "vscode.provideOutgoingCalls",
+        item
+      );
+
+      for (const call of outgoing ?? []) {
+        for (const range of call.fromRanges) {
+          result.push({
+            calleeName: call.to.name,
+            calleeDetail: call.to.detail,
+            calleeKind: vscode.SymbolKind[call.to.kind],
+            calleeFile: call.to.uri.fsPath,
+            calleeLine: call.to.selectionRange.start.line + 1,
+            calleeColumn: call.to.selectionRange.start.character + 1,
+            callee: normalizeCallHierarchyItem(call.to),
+            callSite: await normalizeCallSite(item.uri, range)
+          });
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+async function normalizeCallSite(uri: vscode.Uri, range: vscode.Range): Promise<object> {
+  return {
+    file: uri.fsPath,
+    ...normalizeRange(range),
+    ...(await sourceLine(uri, range.start.line))
+  };
 }
 
 async function callHierarchy(args: Record<string, unknown>): Promise<object[]> {

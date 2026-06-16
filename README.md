@@ -73,6 +73,7 @@ Read-only tools include:
 
 - references, definitions, declarations, implementations, and type definitions
 - hover, diagnostics, document highlights, document symbols, and workspace symbols
+- task-shaped named-symbol tools for callers, callees, references, and definitions
 - call hierarchy and type hierarchy
 - document links, semantic tokens, folding ranges, colors, inline values, code lens, and inlay hints
 - completions, signature help, code actions, prepare rename, and rename preview

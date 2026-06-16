@@ -36,13 +36,13 @@ npm run package
 Expected output:
 
 ```text
-vscode-lsp-mcp-bridge-0.1.6.vsix
+vscode-lsp-mcp-bridge-0.2.0.vsix
 ```
 
 ## Local VSIX Test
 
 ```powershell
-code --install-extension .\vscode-lsp-mcp-bridge-0.1.6.vsix
+code --install-extension .\vscode-lsp-mcp-bridge-0.2.0.vsix
 ```
 
 Then:
@@ -56,7 +56,7 @@ Then:
 7. Ask a semantic question such as:
 
 ```text
-Using only vscode_lsp tools, show the incoming calls for MyClass.MyMethod and include file/line for each caller.
+Using the vscode_lsp find_callers_for_symbol tool, show the incoming calls for MyClass.MyMethod and include file/line for each caller.
 ```
 
 ## Publish

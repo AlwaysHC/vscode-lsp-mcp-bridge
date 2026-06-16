@@ -14,9 +14,18 @@ Use these tools as the primary source for semantic code navigation in the active
 
 For references, definitions, implementations, callers/callees, type hierarchy, diagnostics, hover, rename, code actions, formatting, and symbol lookup, use this MCP server before shell commands, `rg`/`grep`, or raw file search.
 
-If the exact symbol position is unknown, use `workspace_symbols` or `document_symbols` first, then call the position-based tool with the returned `line` and `column`.
+If the exact symbol position is unknown, prefer the task-shaped symbol tools first:
+
+- `find_callers_for_symbol` for "who calls X", incoming calls, callers, and caller file/line answers.
+- `find_callees_for_symbol` for outgoing calls and callees.
+- `find_references_for_symbol` for usages/references by symbol name.
+- `find_definition_for_symbol` for definitions by symbol name.
+
+Use `workspace_symbols` or `document_symbols` to disambiguate names, or when you need a file/line/column for a position-based tool.
 
 Do not use text search as a cross-check unless the user asks for text search or the language provider fails. State any fallback clearly.
+
+`semantic_navigation_guide` returns this routing guidance as a tool result for clients that do not strongly surface MCP server instructions.
 
 ## Position Tools
 
@@ -62,6 +71,11 @@ Input:
 
 Tools:
 
+- `semantic_navigation_guide`
+- `find_callers_for_symbol`
+- `find_callees_for_symbol`
+- `find_references_for_symbol`
+- `find_definition_for_symbol`
 - `workspace_symbols`
 - `call_hierarchy_for_symbol`
 - `type_hierarchy_for_symbol`
@@ -160,6 +174,15 @@ Examples:
 ## Useful Workflows
 
 Find callers by symbol name:
+
+```json
+{
+  "query": "AgendasController.GetBySalonInternal",
+  "kind": "Method"
+}
+```
+
+Full call hierarchy by symbol name:
 
 ```json
 {

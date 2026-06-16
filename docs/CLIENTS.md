@@ -155,10 +155,10 @@ After configuring a client, open a project in VS Code and ask:
 Use the vscode_lsp MCP tools to find references for a symbol in this workspace. Prefer semantic tools over text search.
 ```
 
-For a stronger test, ask for a call hierarchy:
+For a stronger test, ask for incoming callers:
 
 ```text
-Using only vscode_lsp tools, show the incoming calls for MyClass.MyMethod and include file and line for each caller.
+Using the vscode_lsp find_callers_for_symbol tool, show the incoming calls for MyClass.MyMethod and include file and line for each caller.
 ```
 
 ## Troubleshooting

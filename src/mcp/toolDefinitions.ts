@@ -82,16 +82,51 @@ const colorSchema = {
 
 export const toolDefinitions: ToolDefinition[] = [
   {
+    name: "semantic_navigation_guide",
+    title: "Semantic Navigation Guide",
+    description: "Read this when deciding whether to use vscode_lsp tools. It maps user phrases like incoming calls, callers, references, definitions, implementations, and type hierarchy to the right semantic tool, and explains when rg/grep is only a fallback.",
+    inputSchema: {},
+    readOnly: true
+  },
+  {
+    name: "find_callers_for_symbol",
+    title: "Find Callers For Symbol",
+    description: "Use this first when the user asks who calls a named symbol, incoming calls, callers, call sites, or file/line for each caller. Resolves the symbol by name and returns semantic callers only, with caller file/line and call-site file/line. Prefer this over rg/grep/text search.",
+    inputSchema: symbolQuerySchema,
+    readOnly: true
+  },
+  {
+    name: "find_callees_for_symbol",
+    title: "Find Callees For Symbol",
+    description: "Use this first when the user asks what a named symbol calls, outgoing calls, callees, or call sites. Resolves the symbol by name and returns semantic callees only, with callee file/line and call-site file/line. Prefer this over rg/grep/text search.",
+    inputSchema: symbolQuerySchema,
+    readOnly: true
+  },
+  {
+    name: "find_references_for_symbol",
+    title: "Find References For Symbol",
+    description: "Use this first when the user asks for references, usages, or where a named symbol is used and only gives a symbol name. Resolves the symbol by name, then returns semantic references with sourceLine. Prefer this over rg/grep/text search for code references.",
+    inputSchema: symbolQuerySchema,
+    readOnly: true
+  },
+  {
+    name: "find_definition_for_symbol",
+    title: "Find Definition For Symbol",
+    description: "Use this first when the user asks for the definition, declaration target, or where a named symbol is defined and only gives a symbol name. Resolves the symbol by name, then asks VS Code for semantic definitions.",
+    inputSchema: symbolQuerySchema,
+    readOnly: true
+  },
+  {
     name: "find_references",
     title: "Find References",
-    description: "Find semantic references for the symbol at a file position. Results include sourceLine when available; use this instead of rg/grep/text search for symbol references.",
+    description: "Find semantic references for the symbol at a known file position. Results include sourceLine when available; use this instead of rg/grep/text search for symbol references. If only a symbol name is known, use find_references_for_symbol first.",
     inputSchema: positionSchema,
     readOnly: true
   },
   {
     name: "go_to_definition",
     title: "Go To Definition",
-    description: "Find semantic definitions for the symbol at a file position using VS Code language providers. Results include sourceLine when available.",
+    description: "Find semantic definitions for the symbol at a known file position using VS Code language providers. Results include sourceLine when available. If only a symbol name is known, use find_definition_for_symbol first.",
     inputSchema: positionSchema,
     readOnly: true
   },
@@ -133,7 +168,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "workspace_symbols",
     title: "Workspace Symbols",
-    description: "Search workspace symbols using installed VS Code language providers. Use this before text search when only a symbol name is known.",
+    description: "Search workspace symbols using installed VS Code language providers. Use this before text search when only a symbol name is known, or to disambiguate before semantic references, definitions, callers, callees, and hierarchy tools.",
     inputSchema: {
       query: z.string().describe("Symbol search query.")
     },
@@ -158,14 +193,14 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "call_hierarchy_for_symbol",
     title: "Call Hierarchy For Symbol",
-    description: "Resolve a symbol by name with VS Code workspace symbols, then return semantic incoming and outgoing calls.",
+    description: "Resolve a symbol by name with VS Code workspace symbols, then return the full semantic call hierarchy with incoming and outgoing calls. For user questions about only callers/incoming calls, use find_callers_for_symbol first. For only callees/outgoing calls, use find_callees_for_symbol first.",
     inputSchema: symbolQuerySchema,
     readOnly: true
   },
   {
     name: "call_hierarchy",
     title: "Call Hierarchy",
-    description: "Return semantic incoming and outgoing calls for a symbol position. Use this instead of text search for callers and callees.",
+    description: "Return semantic incoming and outgoing calls for a known symbol position. Use this instead of text search for callers and callees. If only a symbol name is known, use find_callers_for_symbol, find_callees_for_symbol, or call_hierarchy_for_symbol first.",
     inputSchema: positionSchema,
     readOnly: true
   },

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- Adds task-shaped semantic navigation tools (`find_callers_for_symbol`, `find_callees_for_symbol`, `find_references_for_symbol`, and `find_definition_for_symbol`) so agents can answer named-symbol questions without starting from text search.
+- Adds `semantic_navigation_guide` and stronger MCP instructions to steer agents toward VS Code semantic tools before `rg`/`grep` for callers, references, definitions, and hierarchy requests.
+
 ## 0.1.6
 
 - Registers an MCP server definition provider so VS Code/GitHub Copilot can discover the bridge without manual `mcp.json` setup.
