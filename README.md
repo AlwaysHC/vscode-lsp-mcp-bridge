@@ -22,8 +22,8 @@ End users do not need to install Node.js. Node/npm are development-time tools on
 2. Open the workspace you want an AI coding tool to inspect.
 3. Make sure the relevant language extension is loaded and working in VS Code.
 4. For VS Code/GitHub Copilot, use the automatically registered `VS Code LSP MCP Bridge` server from VS Code's MCP UI.
-5. For Codex, Claude Code, or another MCP client, run `LSP MCP Bridge: Copy MCP Client Config`.
-6. Choose your client: Codex, VS Code/GitHub Copilot, Claude Code, or Generic HTTP MCP Client.
+5. For Codex, Claude Code, or another external MCP client, run `LSP MCP Bridge: Copy MCP Client Config`.
+6. Choose your client: Codex, Claude Code, or Generic HTTP MCP Client. Choose VS Code/GitHub Copilot only if you want optional explicit JSON.
 7. Run `LSP MCP Bridge: Open MCP Client Config File` if you want the extension to open a common target config file for you.
 8. Paste the copied config into that client and restart or reload the client if needed.
 
@@ -32,19 +32,21 @@ The bridge starts automatically by default when VS Code finishes startup. You ca
 - `LSP MCP Bridge: Start Server`
 - `LSP MCP Bridge: Stop Server`
 - `LSP MCP Bridge: Show Status`
-- `LSP MCP Bridge: Use This Workspace`
+- `LSP MCP Bridge: Route Gateway To This Workspace`
 - `LSP MCP Bridge: Copy MCP Client Config`
 - `LSP MCP Bridge: Open MCP Client Config File`
 
 For client-specific setup, run `LSP MCP Bridge: Copy MCP Client Config` and choose the target client. To avoid hunting for common config files, run `LSP MCP Bridge: Open MCP Client Config File`; it opens the selected file, creates missing files only after confirmation, and copies the matching snippet to the clipboard.
 
-When several VS Code windows are open, the first bridge owns the stable local gateway endpoint. Other windows register behind that gateway, so your MCP client configuration can keep using the same URL. Run `LSP MCP Bridge: Use This Workspace` in the window you want new MCP sessions to inspect.
+When several VS Code windows are open, VS Code/GitHub Copilot auto-registration uses the current window's own bridge endpoint automatically. Final users do not need to run a workspace-selection command for that path.
+
+External clients such as Codex, Claude Code, Cursor, Windsurf, Cline, and Roo Code use the stable local gateway endpoint copied into their config. The first bridge owns that gateway and other windows register behind it. If more than one VS Code window is open, run `LSP MCP Bridge: Route Gateway To This Workspace` only when you want new external-client sessions to target a specific window.
 
 Default config file locations are listed in [docs/CLIENTS.md](docs/CLIENTS.md).
 
 ## VS Code Auto Registration
 
-The extension registers an MCP server definition provider with VS Code. VS Code and GitHub Copilot can discover `VS Code LSP MCP Bridge` without a `.vscode/mcp.json` entry; when VS Code starts that server, the extension starts the local bridge if needed and supplies the bearer token header.
+The extension registers an MCP server definition provider with VS Code. VS Code and GitHub Copilot can discover `VS Code LSP MCP Bridge` without a `.vscode/mcp.json` entry; when VS Code starts that server, the extension starts the local bridge if needed and supplies the current window's endpoint and bearer token header.
 
 This auto-registration is only for VS Code's MCP host. Codex and Claude Code do not read VS Code extension-provided MCP server definitions, so they still need their own MCP configuration. Use `LSP MCP Bridge: Copy MCP Client Config` for those clients.
 
@@ -106,7 +108,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 | --- | --- | --- |
 | `vscodeLspMcpBridge.autoStart` | `true` | Start the local bridge server when VS Code finishes startup. |
 | `vscodeLspMcpBridge.host` | `127.0.0.1` | Host for the local bridge server. Keep this on localhost. |
-| `vscodeLspMcpBridge.port` | `36521` | Stable local gateway port for MCP clients. Additional VS Code windows register behind this gateway instead of requiring client config changes. |
+| `vscodeLspMcpBridge.port` | `36521` | Stable local gateway port for external MCP clients. VS Code/GitHub Copilot auto-registration uses the current window endpoint. |
 | `vscodeLspMcpBridge.connectionFile` | empty | Optional path for the connection file. Empty uses `~/.vscode-lsp-mcp-bridge/connection.json`. |
 | `vscodeLspMcpBridge.enableWriteTools` | `false` | Enable MCP tools that can apply workspace edits. Each write still requires VS Code approval. |
 

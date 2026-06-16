@@ -78,17 +78,23 @@ export class BridgeHttpServer {
       return ["VS Code LSP MCP Bridge is stopped.", `Version: ${version}`].join("\n");
     }
 
+    const gatewayConnection = this.gatewayConnectionValues();
+    const currentWindowConnection = this.currentWindowConnectionValues();
+    const endpointLines =
+      currentWindowConnection.host === gatewayConnection.host && currentWindowConnection.port === gatewayConnection.port
+        ? [`MCP endpoint: http://${gatewayConnection.host}:${gatewayConnection.port}/mcp`]
+        : [
+            `Current-window MCP endpoint: http://${currentWindowConnection.host}:${currentWindowConnection.port}/mcp`,
+            `External-client gateway endpoint: http://${gatewayConnection.host}:${gatewayConnection.port}/mcp`
+          ];
+
     const lines = [
       `VS Code LSP MCP Bridge is running as ${this.role ?? "server"}.`,
       `Version: ${version}`,
-      `MCP endpoint: http://${this.connectionInfo.host}:${this.connectionInfo.port}/mcp`,
+      ...endpointLines,
       `Connection file: ${this.connectionFile}`,
       `Workspace folders: ${this.connectionInfo.workspaceFolders.length}`
     ];
-
-    if (this.role === "worker" && this.actualPort !== undefined) {
-      lines.push(`Private worker endpoint: http://${this.connectionInfo.host}:${this.actualPort}/mcp`);
-    }
 
     if (this.role === "gateway") {
       this.expireStaleWorkspaces();
@@ -196,7 +202,7 @@ export class BridgeHttpServer {
   }
 
   getVsCodeMcpServerDefinition(): vscode.McpHttpServerDefinition {
-    const { host, port, token } = this.currentConnectionValues();
+    const { host, port, token } = this.currentWindowConnectionValues();
 
     return new vscode.McpHttpServerDefinition(
       "VS Code LSP MCP Bridge",
@@ -209,7 +215,7 @@ export class BridgeHttpServer {
   }
 
   private getCodexConfigSnippet(): string {
-    const { host, port, token } = this.currentConnectionValues();
+    const { host, port, token } = this.gatewayConnectionValues();
 
     return [
       "[mcp_servers.vscode_lsp]",
@@ -219,7 +225,7 @@ export class BridgeHttpServer {
   }
 
   private getVsCodeCopilotConfigSnippet(): string {
-    const { host, port, token } = this.currentConnectionValues();
+    const { host, port, token } = this.gatewayConnectionValues();
 
     return JSON.stringify(
       {
@@ -241,13 +247,13 @@ export class BridgeHttpServer {
   }
 
   private getClaudeCodeConfigSnippet(): string {
-    const { host, port, token } = this.currentConnectionValues();
+    const { host, port, token } = this.gatewayConnectionValues();
 
     return `claude mcp add --transport http vscode_lsp http://${host}:${port}/mcp --header "Authorization: Bearer ${token}"`;
   }
 
   private getGenericHttpMcpConfigSnippet(): string {
-    const { host, port, token } = this.currentConnectionValues();
+    const { host, port, token } = this.gatewayConnectionValues();
 
     return JSON.stringify(
       {
@@ -266,13 +272,21 @@ export class BridgeHttpServer {
     );
   }
 
-  private currentConnectionValues(): { host: string; port: number; token: string } {
+  private gatewayConnectionValues(): { host: string; port: number; token: string } {
     const config = vscode.workspace.getConfiguration("vscodeLspMcpBridge");
     const host = this.connectionInfo?.host ?? config.get<string>("host", DEFAULT_HOST);
     const port = this.connectionInfo?.port ?? config.get<number>("port", DEFAULT_PORT);
     const token = this.connectionInfo?.token ?? "<start-the-bridge-first>";
 
     return { host, port, token };
+  }
+
+  private currentWindowConnectionValues(): { host: string; port: number; token: string } {
+    const gatewayConnection = this.gatewayConnectionValues();
+    return {
+      ...gatewayConnection,
+      port: this.actualPort ?? gatewayConnection.port
+    };
   }
 
   private async handleRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
@@ -541,7 +555,7 @@ export class BridgeHttpServer {
       await this.writeConnectionFile();
       this.startRegistrationHeartbeat();
       vscode.window.showInformationMessage(
-        `VS Code LSP MCP Bridge registered this workspace with the gateway at http://${host}:${gatewayPort}/mcp.`
+        `VS Code LSP MCP Bridge registered this workspace with the external-client gateway at http://${host}:${gatewayPort}/mcp.`
       );
     } catch (error) {
       await this.resetAfterFailedStart();
@@ -558,11 +572,11 @@ export class BridgeHttpServer {
 
     if (this.role === "gateway") {
       this.registerLocalWorkspace(this.connectionInfo.host, this.connectionInfo.port, this.connectionInfo.token);
-      return `VS Code LSP MCP Bridge gateway now routes MCP sessions to ${this.workspaceDisplayName()}.`;
+      return `VS Code LSP MCP Bridge gateway now routes external MCP client sessions to ${this.workspaceDisplayName()}.`;
     }
 
     await this.refreshGatewayRegistration(true);
-    return `VS Code LSP MCP Bridge gateway now routes MCP sessions to ${this.workspaceDisplayName()}.`;
+    return `VS Code LSP MCP Bridge gateway now routes external MCP client sessions to ${this.workspaceDisplayName()}.`;
   }
 
   private async handleGatewayRequest(

@@ -29,7 +29,7 @@ Override with:
 "vscodeLspMcpBridge.connectionFile": "..."
 ```
 
-MCP clients normally do not need the connection file. Use `LSP MCP Bridge: Copy MCP Client Config` to copy a direct Streamable HTTP MCP configuration for your client.
+MCP clients normally do not need the connection file. Use `LSP MCP Bridge: Copy MCP Client Config` to copy a gateway-based Streamable HTTP MCP configuration for your client.
 
 ## Write Tools
 

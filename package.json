@@ -81,7 +81,7 @@
       },
       {
         "command": "vscode-lsp-mcp-bridge.useWorkspace",
-        "title": "LSP MCP Bridge: Use This Workspace",
+        "title": "LSP MCP Bridge: Route Gateway To This Workspace",
         "category": "LSP MCP Bridge"
       },
       {
@@ -114,7 +114,7 @@
           {
             "id": "vscode-lsp-mcp-bridge.useWorkspace",
             "title": "Route the gateway to this workspace",
-            "description": "When several VS Code windows are open, route new MCP sessions from the stable gateway endpoint to the current workspace.\n\n[Use this workspace](command:vscode-lsp-mcp-bridge.useWorkspace)"
+            "description": "External MCP clients use the stable gateway endpoint. When several VS Code windows are open, route new external-client sessions to the current workspace.\n\n[Route gateway to this workspace](command:vscode-lsp-mcp-bridge.useWorkspace)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.openConfigFile",
@@ -147,7 +147,7 @@
           "default": 36521,
           "minimum": 1024,
           "maximum": 65535,
-          "description": "Stable local gateway port for MCP clients. Additional VS Code windows register behind this gateway instead of requiring client config changes."
+          "description": "Stable local gateway port for external MCP clients. VS Code/GitHub Copilot auto-registration uses the current window endpoint."
         },
         "vscodeLspMcpBridge.connectionFile": {
           "type": "string",

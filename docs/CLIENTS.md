@@ -1,20 +1,20 @@
 # MCP Client Setup
 
-Run `LSP MCP Bridge: Copy MCP Client Config` from the VS Code Command Palette and choose the client you want to configure. The command starts the bridge if needed, then copies a config snippet with the current endpoint and bearer token.
+Run `LSP MCP Bridge: Copy MCP Client Config` from the VS Code Command Palette and choose the client you want to configure. The command starts the bridge if needed, then copies a config snippet with the stable external-client gateway endpoint and bearer token.
 
 You can also run `LSP MCP Bridge: Open MCP Client Config File`. It opens a common MCP client config file, creates the file only after confirmation when it is missing, and copies the matching bridge snippet to the clipboard. It does not silently edit existing files.
 
-For VS Code/GitHub Copilot, manual JSON is optional. The extension automatically contributes a `VS Code LSP MCP Bridge` MCP server definition to VS Code, and VS Code starts the bridge with the correct bearer token when you enable or start that server from the MCP UI.
+For VS Code/GitHub Copilot, manual JSON is optional. The extension automatically contributes a `VS Code LSP MCP Bridge` MCP server definition to each VS Code window, and VS Code starts the bridge with that window's endpoint and bearer token when you enable or start that server from the MCP UI.
 
 Codex, Claude Code, Cursor, Windsurf, Cline, Roo Code, and other external clients do not read VS Code extension-provided MCP server definitions. Configure those clients with the copied snippet or command.
 
-Default gateway endpoint:
+Default external-client gateway endpoint:
 
 ```text
 http://127.0.0.1:36521/mcp
 ```
 
-Keep this endpoint in your MCP client config. When several VS Code windows are open, one bridge owns this stable gateway port and the other windows register behind it. Run `LSP MCP Bridge: Use This Workspace` in the VS Code window you want new MCP sessions to inspect.
+Keep this endpoint in external MCP client configs. When several VS Code windows are open, one bridge owns this stable gateway port and the other windows register behind it. Run `LSP MCP Bridge: Route Gateway To This Workspace` only when you want new external-client sessions to target a specific VS Code window.
 
 The token is generated locally and stored in VS Code SecretStorage. Treat copied snippets as sensitive.
 
@@ -25,7 +25,7 @@ Use these default locations when you paste the bridge settings manually:
 | Client | Default configuration location | Notes |
 | --- | --- | --- |
 | Codex | `~/.codex/config.toml` (`%USERPROFILE%\.codex\config.toml` on Windows) | Paste the copied TOML into the main config file. If you use project-local Codex configuration, put the same block in `<project>/.codex/config.toml`. |
-| VS Code / GitHub Copilot | Auto-registered by the extension; optional manual config in workspace `<project>/.vscode/mcp.json` or user profile `MCP: Open User Configuration` | Manual JSON is useful if you want an explicit config file. For the default VS Code profile, the user file is usually `%APPDATA%\Code\User\mcp.json` on Windows, `~/Library/Application Support/Code/User/mcp.json` on macOS, or `~/.config/Code/User/mcp.json` on Linux. |
+| VS Code / GitHub Copilot | Auto-registered by the extension; optional manual config in workspace `<project>/.vscode/mcp.json` or user profile `MCP: Open User Configuration` | Auto-registration uses the current VS Code window automatically. Manual JSON is a gateway-based fallback if you want an explicit config file. For the default VS Code profile, the user file is usually `%APPDATA%\Code\User\mcp.json` on Windows, `~/Library/Application Support/Code/User/mcp.json` on macOS, or `~/.config/Code/User/mcp.json` on Linux. |
 | Claude Code | Default local scope: `~/.claude.json`; shared project scope: `<project>/.mcp.json` | The `claude mcp add` command writes to the right place. Use `--scope project` if you want the bridge entry in `.mcp.json`. |
 | Cursor | User: `~/.cursor/mcp.json`; project: `<project>/.cursor/mcp.json` | Use the generic JSON shape unless Cursor asks for a different HTTP transport label. |
 | Windsurf / Cascade | `~/.codeium/windsurf/mcp_config.json` (`%USERPROFILE%\.codeium\windsurf\mcp_config.json` on Windows) | Windsurf accepts `serverUrl` or `url` for remote HTTP MCPs. |
@@ -39,7 +39,7 @@ Use these default locations when you paste the bridge settings manually:
 | Picker option | File opened | Snippet copied |
 | --- | --- | --- |
 | Codex global config | `~/.codex/config.toml` | Codex TOML |
-| VS Code workspace MCP config | `<workspace>/.vscode/mcp.json` | VS Code/GitHub Copilot JSON |
+| VS Code workspace MCP config | `<workspace>/.vscode/mcp.json` | Optional VS Code/GitHub Copilot fallback JSON |
 | Claude Code project config | `<workspace>/.mcp.json` | Generic HTTP MCP JSON |
 | Cursor user config | `~/.cursor/mcp.json` | Generic HTTP MCP JSON |
 | Cursor workspace config | `<workspace>/.cursor/mcp.json` | Generic HTTP MCP JSON |
@@ -63,9 +63,9 @@ Add it to `~/.codex/config.toml`, then restart Codex.
 
 ## VS Code / GitHub Copilot
 
-The extension automatically registers `VS Code LSP MCP Bridge` as a VS Code MCP server definition provider. You can start, trust, enable, disable, or inspect it from VS Code's MCP UI without adding a `.vscode/mcp.json` entry. When VS Code starts the server, the extension starts the local bridge if needed and sends the current bearer token in the `Authorization` header.
+The extension automatically registers `VS Code LSP MCP Bridge` as a VS Code MCP server definition provider. You can start, trust, enable, disable, or inspect it from VS Code's MCP UI without adding a `.vscode/mcp.json` entry. When VS Code starts the server, the extension starts the local bridge if needed and sends the current VS Code window's endpoint and bearer token in the `Authorization` header.
 
-Choose `VS Code / GitHub Copilot` in the picker only if you prefer explicit MCP JSON. The copied JSON is intended for VS Code's MCP configuration file.
+Choose `VS Code / GitHub Copilot` in the picker only if you prefer explicit MCP JSON. The copied JSON is intended for VS Code's MCP configuration file and uses the stable gateway endpoint.
 
 VS Code supports MCP configuration in:
 
@@ -90,7 +90,7 @@ The copied JSON has this shape:
 }
 ```
 
-After saving manual config, start or trust the server from VS Code's MCP UI when prompted.
+After saving manual config, start or trust the server from VS Code's MCP UI when prompted. With multiple VS Code windows, auto-registration is the simpler path because it follows the current window automatically.
 
 References:
 
@@ -168,5 +168,6 @@ Using only vscode_lsp tools, show the incoming calls for MyClass.MyMethod and in
 - The relevant language extension must finish loading before semantic results are complete.
 - If the auto-registered VS Code MCP server does not appear, reload VS Code and confirm you are running VS Code `1.100.0` or newer.
 - Keep the MCP endpoint on `127.0.0.1` unless you understand the security implications.
-- If several VS Code windows are open, run `LSP MCP Bridge: Use This Workspace` in the window you want new MCP sessions to inspect.
+- VS Code/GitHub Copilot auto-registration follows the current VS Code window automatically.
+- If several VS Code windows are open and an external client uses the copied gateway config, run `LSP MCP Bridge: Route Gateway To This Workspace` in the window you want new external-client sessions to inspect.
 - If another non-bridge process is using the gateway port, stop that process or change `vscodeLspMcpBridge.port` once and copy a fresh client config.

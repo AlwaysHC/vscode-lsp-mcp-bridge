@@ -32,7 +32,7 @@ const clientConfigOptions: ClientConfigOption[] = [
   {
     label: "VS Code / GitHub Copilot",
     id: "vscode-copilot",
-    detail: "JSON for VS Code user or workspace mcp.json."
+    detail: "Optional fallback JSON for VS Code user or workspace mcp.json."
   },
   {
     label: "Claude Code",
@@ -58,7 +58,7 @@ const clientConfigFileOptions: ClientConfigFileOption[] = [
   {
     label: "VS Code workspace MCP config",
     detail: "<workspace>/.vscode/mcp.json",
-    description: "Workspace-level MCP config for VS Code and GitHub Copilot.",
+    description: "Optional workspace-level fallback config for VS Code and GitHub Copilot.",
     snippetClientId: "vscode-copilot",
     getPath: () => workspacePath(".vscode", "mcp.json"),
     initialContent: emptyVsCodeMcpJson

@@ -3,8 +3,10 @@
 ## 0.1.6
 
 - Registers an MCP server definition provider so VS Code/GitHub Copilot can discover the bridge without manual `mcp.json` setup.
+- Uses the current VS Code window endpoint for auto-registered VS Code/GitHub Copilot MCP servers, so multiple windows follow their own context automatically.
 - Documents that VS Code auto-registration does not configure Codex, Claude Code, or other external MCP clients.
 - Fixes routed MCP sessions for secondary VS Code windows by forwarding follow-up `POST` request bodies through the gateway.
+- Renames the workspace-routing command to `LSP MCP Bridge: Route Gateway To This Workspace` to clarify that it is only needed for external clients using the shared gateway.
 
 ## 0.1.5
 
@@ -22,7 +24,7 @@
 ## 0.1.2
 
 - Keeps MCP client configuration stable by routing additional VS Code windows through the first local gateway endpoint.
-- Adds `LSP MCP Bridge: Use This Workspace` to route new MCP sessions to the current VS Code workspace.
+- Adds a gateway workspace-routing command to route new external-client MCP sessions to the current VS Code workspace.
 - Updates multi-window setup, security, architecture, and publishing documentation for the gateway/worker model.
 
 ## 0.1.1

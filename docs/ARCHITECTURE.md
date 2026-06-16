@@ -17,9 +17,11 @@ Shared protocol
 
 ## VS Code Extension
 
-The extension starts a localhost HTTP server. The public integration endpoint is a Streamable HTTP MCP endpoint at `/mcp`.
+The extension starts a localhost HTTP server. Each running bridge exposes a Streamable HTTP MCP endpoint at `/mcp`.
 
-The first VS Code window to start the bridge owns the configured gateway port. Later VS Code windows start private localhost worker endpoints and register them with that gateway. The gateway routes new MCP sessions to the active workspace, so MCP client configuration can keep using one stable URL.
+VS Code/GitHub Copilot auto-registration receives the current window's own endpoint. This means each VS Code window can use its own language context automatically without asking the user to select a workspace.
+
+External MCP clients receive the stable gateway endpoint in copied config snippets. The first VS Code window to start the bridge owns the configured gateway port. Later VS Code windows start localhost worker endpoints and register them with that gateway. The gateway routes new external-client MCP sessions to the active workspace, so external client configuration can keep using one stable URL.
 
 For manual smoke tests, the bridge also keeps a debug `POST /tool` endpoint that dispatches directly to `runLanguageTool` and returns normalized JSON.
 
@@ -40,7 +42,7 @@ The MCP server runs inside the VS Code extension host. It registers tools from `
 
 The published VSIX bundles runtime dependencies into `dist/extension.js`. Final users do not need Node.js or `node_modules`.
 
-Clients connect to the stable gateway endpoint:
+External clients connect to the stable gateway endpoint:
 
 ```toml
 [mcp_servers.vscode_lsp]
@@ -48,7 +50,7 @@ url = "http://127.0.0.1:36521/mcp"
 http_headers = { Authorization = "Bearer copied-token" }
 ```
 
-This avoids requiring final users to install Node.js or run a separate MCP wrapper process. Port `36521` is the default gateway. If another VS Code window already owns it, the new window registers as a worker behind the gateway instead of changing the MCP client URL.
+This avoids requiring final users to install Node.js or run a separate MCP wrapper process. Port `36521` is the default gateway. If another VS Code window already owns it, the new window registers as a worker behind the gateway instead of changing external MCP client URLs. VS Code/GitHub Copilot auto-registration bypasses this shared routing choice by using the current window endpoint directly.
 
 ## Connection File
 
