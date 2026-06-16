@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Fixes external-client multi-window routing so existing MCP sessions execute language tools against the workspace that owns the requested file path.
+
 ## 0.2.0
 
 - Adds task-shaped semantic navigation tools (`find_callers_for_symbol`, `find_callees_for_symbol`, `find_references_for_symbol`, and `find_definition_for_symbol`) so agents can answer named-symbol questions without starting from text search.

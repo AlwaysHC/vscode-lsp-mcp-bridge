@@ -42,6 +42,18 @@ interface GatewayEndpoint {
   token: string;
 }
 
+interface JsonRpcRequest {
+  jsonrpc?: string;
+  id?: string | number | null;
+  method?: string;
+  params?: unknown;
+}
+
+interface McpToolCallParams {
+  name?: unknown;
+  arguments?: unknown;
+}
+
 const registrationRefreshMs = 30_000;
 const registrationStaleMs = 90_000;
 
@@ -337,7 +349,10 @@ export class BridgeHttpServer {
       }
 
       const body = await this.readJson<BridgeToolRequest>(request);
-      const backend = this.activeRemoteWorkspace();
+      const hintedWorkspace = await this.workspaceForToolRequest(body);
+      const backend = hintedWorkspace && !hintedWorkspace.isLocal
+        ? hintedWorkspace
+        : this.activeRemoteWorkspace();
       if (backend) {
         await this.proxyRequestToWorkspace(request, response, backend, body, { mcp: false });
         return;
@@ -372,6 +387,16 @@ export class BridgeHttpServer {
     if (this.role === "gateway" && sessionId) {
       const backendId = this.mcpSessionRoutes.get(sessionId);
       if (backendId) {
+        const body = method === "POST" ? await this.readJson<unknown>(request) : undefined;
+        const targetWorkspace = body !== undefined
+          ? await this.workspaceForMcpToolCall(body) ?? this.activeWorkspace()
+          : undefined;
+        if (body !== undefined && targetWorkspace && targetWorkspace.id !== backendId) {
+          if (await this.tryHandleMcpToolCallInWorkspace(response, body, targetWorkspace)) {
+            return;
+          }
+        }
+
         const backend = this.registeredWorkspaces.get(backendId);
         if (!backend || backend.isLocal) {
           this.mcpSessionRoutes.delete(sessionId);
@@ -379,7 +404,6 @@ export class BridgeHttpServer {
           return;
         }
 
-        const body = method === "POST" ? await this.readJson<unknown>(request) : undefined;
         await this.proxyRequestToWorkspace(request, response, backend, body, { mcp: true });
         if (method === "DELETE") {
           this.mcpSessionRoutes.delete(sessionId);
@@ -418,6 +442,11 @@ export class BridgeHttpServer {
         const session = this.mcpSessions.get(sessionId);
         if (!session) {
           this.writeMcpError(response, 404, -32000, "Unknown MCP session.");
+          return;
+        }
+
+        const targetWorkspace = await this.workspaceForMcpToolCall(body) ?? this.activeWorkspace();
+        if (targetWorkspace && targetWorkspace.id !== this.workspaceId && (await this.tryHandleMcpToolCallInWorkspace(response, body, targetWorkspace))) {
           return;
         }
 
@@ -679,6 +708,15 @@ export class BridgeHttpServer {
     return activeWorkspace && !activeWorkspace.isLocal ? activeWorkspace : undefined;
   }
 
+  private activeWorkspace(): RegisteredWorkspace | undefined {
+    if (this.role !== "gateway") {
+      return undefined;
+    }
+
+    this.expireStaleWorkspaces();
+    return this.activeWorkspaceId ? this.registeredWorkspaces.get(this.activeWorkspaceId) : undefined;
+  }
+
   private activeWorkspaceSummary(): object | undefined {
     if (this.role !== "gateway" || !this.activeWorkspaceId) {
       return undefined;
@@ -861,6 +899,224 @@ export class BridgeHttpServer {
     }
   }
 
+  private async tryHandleMcpToolCallInWorkspace(
+    response: http.ServerResponse,
+    body: unknown,
+    workspace: RegisteredWorkspace
+  ): Promise<boolean> {
+    const toolRequest = this.mcpToolRequestFromBody(body);
+    if (!toolRequest) {
+      return false;
+    }
+
+    try {
+      const toolResponse = workspace.isLocal
+        ? await this.runLocalToolRequest(toolRequest.request)
+        : await this.postToolRequestToWorkspace(workspace, toolRequest.request);
+      if (toolResponse.ok) {
+        this.writeJson(response, 200, {
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(toolResponse.result, null, 2)
+              }
+            ]
+          },
+          id: toolRequest.id
+        });
+        return true;
+      }
+
+      this.writeJson(response, 200, {
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: toolResponse.error ?? "Workspace tool call failed."
+        },
+        id: toolRequest.id
+      });
+      return true;
+    } catch (error) {
+      if (!workspace.isLocal) {
+        this.removeRegisteredWorkspace(workspace.id);
+      }
+      this.writeJson(response, 200, {
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: `MCP workspace tool proxy failed: ${error instanceof Error ? error.message : String(error)}`
+        },
+        id: toolRequest.id
+      });
+      return true;
+    }
+  }
+
+  private async workspaceForMcpToolCall(body: unknown): Promise<RegisteredWorkspace | undefined> {
+    const toolRequest = this.mcpToolRequestFromBody(body);
+    return toolRequest ? this.workspaceForToolRequest(toolRequest.request) : undefined;
+  }
+
+  private async workspaceForToolRequest(request: BridgeToolRequest): Promise<RegisteredWorkspace | undefined> {
+    if (this.role !== "gateway") {
+      return undefined;
+    }
+
+    const file = this.toolFileArgument(request.args);
+    if (!file) {
+      return undefined;
+    }
+
+    this.expireStaleWorkspaces();
+    const workspaces = [...this.registeredWorkspaces.values()];
+    if (path.isAbsolute(file)) {
+      return this.workspaceContainingAbsolutePath(workspaces, file);
+    }
+
+    const matches = [];
+    for (const workspace of workspaces) {
+      for (const folder of workspace.workspaceFolders) {
+        if (await this.pathExists(path.join(folder, file))) {
+          matches.push(workspace);
+          break;
+        }
+      }
+    }
+
+    if (matches.length === 1) {
+      return matches[0];
+    }
+
+    const activeWorkspace = this.activeWorkspace();
+    return activeWorkspace && matches.some(workspace => workspace.id === activeWorkspace.id)
+      ? activeWorkspace
+      : undefined;
+  }
+
+  private toolFileArgument(args: Record<string, unknown>): string | undefined {
+    const file = args.file;
+    return typeof file === "string" && file.trim() ? file : undefined;
+  }
+
+  private workspaceContainingAbsolutePath(
+    workspaces: RegisteredWorkspace[],
+    file: string
+  ): RegisteredWorkspace | undefined {
+    const normalizedFile = this.normalizePathForComparison(file);
+    const matches = workspaces.filter(workspace =>
+      workspace.workspaceFolders.some(folder => this.pathContains(folder, normalizedFile))
+    );
+
+    if (matches.length === 1) {
+      return matches[0];
+    }
+
+    const activeWorkspace = this.activeWorkspace();
+    return activeWorkspace && matches.some(workspace => workspace.id === activeWorkspace.id)
+      ? activeWorkspace
+      : undefined;
+  }
+
+  private pathContains(folder: string, normalizedFile: string): boolean {
+    const normalizedFolder = this.normalizePathForComparison(folder);
+    return normalizedFile === normalizedFolder || normalizedFile.startsWith(`${normalizedFolder}${path.sep}`);
+  }
+
+  private normalizePathForComparison(file: string): string {
+    return path.resolve(file).toLowerCase();
+  }
+
+  private async pathExists(file: string): Promise<boolean> {
+    try {
+      await fs.access(file);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private mcpToolRequestFromBody(body: unknown): { id: string | number | null | undefined; request: BridgeToolRequest } | undefined {
+    if (!this.isJsonObject(body)) {
+      return undefined;
+    }
+
+    const request = body as JsonRpcRequest;
+    if (request.method !== "tools/call" || !this.isJsonObject(request.params)) {
+      return undefined;
+    }
+
+    const params = request.params as McpToolCallParams;
+    if (typeof params.name !== "string") {
+      return undefined;
+    }
+
+    const args = this.isJsonObject(params.arguments) ? params.arguments as Record<string, unknown> : {};
+
+    return {
+      id: request.id,
+      request: {
+        name: params.name,
+        args
+      }
+    };
+  }
+
+  private async postToolRequestToWorkspace(
+    workspace: RegisteredWorkspace,
+    body: BridgeToolRequest
+  ): Promise<BridgeToolResponse> {
+    const payload = JSON.stringify(body);
+    return await new Promise<BridgeToolResponse>((resolve, reject) => {
+      const request = http.request(
+        {
+          host: workspace.host,
+          port: workspace.port,
+          path: "/tool",
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${workspace.token}`,
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(payload)
+          }
+        },
+        response => {
+          const chunks: Buffer[] = [];
+          response.on("data", chunk => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          });
+          response.on("end", () => {
+            try {
+              resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as BridgeToolResponse);
+            } catch (error) {
+              reject(error);
+            }
+          });
+        }
+      );
+
+      request.on("error", reject);
+      request.setTimeout(15_000, () => {
+        request.destroy(new Error("Timed out while proxying tool call to workspace bridge."));
+      });
+      request.write(payload);
+      request.end();
+    });
+  }
+
+  private async runLocalToolRequest(body: BridgeToolRequest): Promise<BridgeToolResponse> {
+    try {
+      const result = await runLanguageTool(body.name, body.args ?? {}, { allowWrites: this.allowWrites });
+      return { ok: true, result };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
   private async proxyRequest(
     request: http.IncomingMessage,
     response: http.ServerResponse,
@@ -971,6 +1227,10 @@ export class BridgeHttpServer {
 
   private firstHeaderValue(value: string | string[] | undefined): string | undefined {
     return Array.isArray(value) ? value[0] : value;
+  }
+
+  private isJsonObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   private async resetAfterFailedStart(): Promise<void> {
