@@ -73,12 +73,14 @@ export class BridgeHttpServer {
   }
 
   get status(): string {
+    const version = this.extensionVersion();
     if (!this.connectionInfo || !this.connectionFile) {
-      return "VS Code LSP MCP Bridge is stopped.";
+      return ["VS Code LSP MCP Bridge is stopped.", `Version: ${version}`].join("\n");
     }
 
     const lines = [
       `VS Code LSP MCP Bridge is running as ${this.role ?? "server"}.`,
+      `Version: ${version}`,
       `MCP endpoint: http://${this.connectionInfo.host}:${this.connectionInfo.port}/mcp`,
       `Connection file: ${this.connectionFile}`,
       `Workspace folders: ${this.connectionInfo.workspaceFolders.length}`
@@ -98,6 +100,11 @@ export class BridgeHttpServer {
     }
 
     return lines.join("\n");
+  }
+
+  private extensionVersion(): string {
+    const version = this.context.extension.packageJSON.version;
+    return typeof version === "string" && version.trim() ? version : "unknown";
   }
 
   async start(): Promise<void> {

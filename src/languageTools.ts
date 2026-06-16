@@ -23,6 +23,8 @@ interface WriteApprovalRequest {
 
 type CodeActionLike = vscode.CodeAction | vscode.Command;
 
+const sourceLineMaxLength = 240;
+
 export async function runLanguageTool(
   name: string,
   args: Record<string, unknown>,
@@ -30,15 +32,15 @@ export async function runLanguageTool(
 ): Promise<unknown> {
   switch (name) {
     case "find_references":
-      return locations(await executeAtPosition<vscode.Location[]>("vscode.executeReferenceProvider", args));
+      return locationsWithSourceLines(await executeAtPosition<vscode.Location[]>("vscode.executeReferenceProvider", args));
     case "go_to_definition":
-      return locations(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeDefinitionProvider", args));
+      return locationsWithSourceLines(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeDefinitionProvider", args));
     case "go_to_declaration":
-      return locations(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeDeclarationProvider", args));
+      return locationsWithSourceLines(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeDeclarationProvider", args));
     case "go_to_implementation":
-      return locations(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeImplementationProvider", args));
+      return locationsWithSourceLines(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeImplementationProvider", args));
     case "go_to_type_definition":
-      return locations(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeTypeDefinitionProvider", args));
+      return locationsWithSourceLines(await executeAtPosition<Array<vscode.Location | vscode.LocationLink>>("vscode.executeTypeDefinitionProvider", args));
     case "hover":
       return normalizeHovers(await executeAtPosition<vscode.Hover[]>("vscode.executeHoverProvider", args));
     case "document_symbols":
@@ -301,22 +303,60 @@ function normalizeRange(range: vscode.Range): object {
 }
 
 function normalizeLocation(value: vscode.Location | vscode.LocationLink): object {
+  const { uri, range } = locationTarget(value);
+  return {
+    file: uri.fsPath,
+    ...normalizeRange(range)
+  };
+}
+
+function locationTarget(value: vscode.Location | vscode.LocationLink): { uri: vscode.Uri; range: vscode.Range } {
   if ("targetUri" in value) {
-    const selectionRange = value.targetSelectionRange ?? value.targetRange;
     return {
-      file: value.targetUri.fsPath,
-      ...normalizeRange(selectionRange)
+      uri: value.targetUri,
+      range: value.targetSelectionRange ?? value.targetRange
     };
   }
 
   return {
-    file: value.uri.fsPath,
-    ...normalizeRange(value.range)
+    uri: value.uri,
+    range: value.range
   };
 }
 
-function locations(values: Array<vscode.Location | vscode.LocationLink> | undefined): object[] {
-  return (values ?? []).map(normalizeLocation);
+async function locationsWithSourceLines(values: Array<vscode.Location | vscode.LocationLink> | undefined): Promise<object[]> {
+  return Promise.all((values ?? []).map(normalizeLocationWithSourceLine));
+}
+
+async function normalizeLocationWithSourceLine(value: vscode.Location | vscode.LocationLink): Promise<object> {
+  const { uri, range } = locationTarget(value);
+  return {
+    file: uri.fsPath,
+    ...normalizeRange(range),
+    ...(await sourceLine(uri, range.start.line))
+  };
+}
+
+async function sourceLine(uri: vscode.Uri, zeroBasedLine: number): Promise<{ sourceLine: string } | object> {
+  try {
+    const document = await openTextDocumentByUri(uri);
+    return { sourceLine: truncateSourceLine(document.lineAt(zeroBasedLine).text.trim()) };
+  } catch {
+    return {};
+  }
+}
+
+function truncateSourceLine(value: string): string {
+  if (value.length <= sourceLineMaxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, sourceLineMaxLength - 3)}...`;
+}
+
+async function openTextDocumentByUri(uri: vscode.Uri): Promise<vscode.TextDocument> {
+  const openDocument = vscode.workspace.textDocuments.find(document => document.uri.toString() === uri.toString());
+  return openDocument ?? vscode.workspace.openTextDocument(uri);
 }
 
 function markedStringToText(value: vscode.MarkdownString | vscode.MarkedString): string {

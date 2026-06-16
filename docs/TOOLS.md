@@ -1,6 +1,6 @@
 # Tool Catalog
 
-Tool inputs and results use one-based editor `line` and `column` values. Results are intentionally compact for LLM use: prefer the returned `file`, `line`, and `column` fields directly in user-facing answers and follow-up calls.
+Tool inputs and results use one-based editor `line` and `column` values. Location-list results also include `sourceLine` when VS Code can open the target document. Results are intentionally compact for LLM use: prefer the returned `file`, `line`, `column`, and `sourceLine` fields directly in user-facing answers and follow-up calls.
 
 ## Scope
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+- Shows the extension version in the bridge status message.
+
+## 0.1.3
+
+- Adds `sourceLine` previews to semantic location-list tools, including references and definitions, so clients can summarize matches without extra text search.
+- Updates MCP tool guidance and documentation to prefer returned source context in user-facing answers.
+
 ## 0.1.2
 
 - Keeps MCP client configuration stable by routing additional VS Code windows through the first local gateway endpoint.

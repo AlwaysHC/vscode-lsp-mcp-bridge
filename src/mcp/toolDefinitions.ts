@@ -84,35 +84,35 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "find_references",
     title: "Find References",
-    description: "Find semantic references for the symbol at a file position. Use this instead of rg/grep/text search for symbol references.",
+    description: "Find semantic references for the symbol at a file position. Results include sourceLine when available; use this instead of rg/grep/text search for symbol references.",
     inputSchema: positionSchema,
     readOnly: true
   },
   {
     name: "go_to_definition",
     title: "Go To Definition",
-    description: "Find semantic definitions for the symbol at a file position using VS Code language providers.",
+    description: "Find semantic definitions for the symbol at a file position using VS Code language providers. Results include sourceLine when available.",
     inputSchema: positionSchema,
     readOnly: true
   },
   {
     name: "go_to_declaration",
     title: "Go To Declaration",
-    description: "Find semantic declarations for the symbol at a file position using VS Code language providers.",
+    description: "Find semantic declarations for the symbol at a file position using VS Code language providers. Results include sourceLine when available.",
     inputSchema: positionSchema,
     readOnly: true
   },
   {
     name: "go_to_implementation",
     title: "Go To Implementation",
-    description: "Find semantic implementations for the symbol at a file position using VS Code language providers.",
+    description: "Find semantic implementations for the symbol at a file position using VS Code language providers. Results include sourceLine when available.",
     inputSchema: positionSchema,
     readOnly: true
   },
   {
     name: "go_to_type_definition",
     title: "Go To Type Definition",
-    description: "Find semantic type definitions for the symbol at a file position using VS Code language providers.",
+    description: "Find semantic type definitions for the symbol at a file position using VS Code language providers. Results include sourceLine when available.",
     inputSchema: positionSchema,
     readOnly: true
   },

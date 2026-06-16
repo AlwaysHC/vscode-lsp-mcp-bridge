@@ -6,7 +6,7 @@ export function createLanguageMcpServer(allowWrites: () => boolean): McpServer {
   const server = new McpServer(
     {
       name: "vscode-lsp-mcp-bridge",
-      version: "0.1.1"
+      version: "0.1.4"
     },
     {
       instructions: [
@@ -15,7 +15,8 @@ export function createLanguageMcpServer(allowWrites: () => boolean): McpServer {
         "If the exact symbol position is unknown, use workspace_symbols or document_symbols to locate it, then call the position-based tool.",
         "Do not use text search as a cross-check unless the user asks for text search or the language provider fails; state any fallback clearly.",
         "Tool inputs and results use one-based editor line and column values.",
-        "Tool results are compact for LLM use: use file, line, and column directly in user-facing answers and follow-up tool calls.",
+        "Location-list tools include sourceLine when available; use it to summarize reference intent before falling back to raw file reads or text search.",
+        "Tool results are compact for LLM use: use file, line, column, and sourceLine directly in user-facing answers and follow-up tool calls.",
         "Write-capable tools only apply edits when the VS Code setting vscodeLspMcpBridge.enableWriteTools is true and the user approves the VS Code modal confirmation."
       ].join(" ")
     }
