@@ -365,7 +365,8 @@ export class BridgeHttpServer {
           return;
         }
 
-        await this.proxyRequestToWorkspace(request, response, backend, undefined, { mcp: true });
+        const body = method === "POST" ? await this.readJson<unknown>(request) : undefined;
+        await this.proxyRequestToWorkspace(request, response, backend, body, { mcp: true });
         if (method === "DELETE") {
           this.mcpSessionRoutes.delete(sessionId);
         }

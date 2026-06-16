@@ -4,6 +4,7 @@
 
 - Registers an MCP server definition provider so VS Code/GitHub Copilot can discover the bridge without manual `mcp.json` setup.
 - Documents that VS Code auto-registration does not configure Codex, Claude Code, or other external MCP clients.
+- Fixes routed MCP sessions for secondary VS Code windows by forwarding follow-up `POST` request bodies through the gateway.
 
 ## 0.1.5
 
