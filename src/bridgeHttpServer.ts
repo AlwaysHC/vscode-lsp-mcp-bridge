@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import * as vscode from "vscode";
+import { getBridgeConfiguration, getWriteToolsEnabled } from "./configuration.js";
 import { runLanguageTool } from "./languageTools.js";
 import { createLanguageMcpServer } from "./mcp/createLanguageMcpServer.js";
 import { defaultConnectionFilePath } from "./shared/paths.js";
@@ -114,9 +115,7 @@ export class BridgeHttpServer {
 
   get status(): string {
     const version = this.extensionVersion();
-    const writeToolsEnabled = vscode.workspace
-      .getConfiguration("vscodeLspMcpBridge")
-      .get<boolean>("enableWriteTools", false);
+    const writeToolsEnabled = getWriteToolsEnabled();
     const writeToolsLine = `Write tools: ${writeToolsEnabled ? "enabled" : "disabled"}`;
 
     if (!this.connectionInfo || !this.connectionFile) {
@@ -168,7 +167,7 @@ export class BridgeHttpServer {
       throw new Error("The bridge refuses to start in an untrusted workspace.");
     }
 
-    const config = vscode.workspace.getConfiguration("vscodeLspMcpBridge");
+    const config = getBridgeConfiguration();
     const host = config.get<string>("host", DEFAULT_HOST);
     const requestedPort = config.get<number>("port", DEFAULT_PORT);
     const configuredConnectionFile = config.get<string>("connectionFile", "").trim();
@@ -319,7 +318,7 @@ export class BridgeHttpServer {
   }
 
   private gatewayConnectionValues(): { host: string; port: number; token: string } {
-    const config = vscode.workspace.getConfiguration("vscodeLspMcpBridge");
+    const config = getBridgeConfiguration();
     const host = this.connectionInfo?.host ?? config.get<string>("host", DEFAULT_HOST);
     const port = this.connectionInfo?.port ?? config.get<number>("port", DEFAULT_PORT);
     const token = this.connectionInfo?.token ?? "<start-the-bridge-first>";
@@ -392,9 +391,7 @@ export class BridgeHttpServer {
         return;
       }
 
-      const allowWrites = vscode.workspace
-        .getConfiguration("vscodeLspMcpBridge")
-        .get<boolean>("enableWriteTools", false);
+      const allowWrites = getWriteToolsEnabled();
 
       const result = await runLanguageTool(body.name, body.args ?? {}, { allowWrites });
       this.writeJson(response, 200, { ok: true, result } satisfies BridgeToolResponse);
@@ -1445,9 +1442,7 @@ export class BridgeHttpServer {
   }
 
   private get allowWrites(): boolean {
-    return vscode.workspace
-      .getConfiguration("vscodeLspMcpBridge")
-      .get<boolean>("enableWriteTools", false);
+    return getWriteToolsEnabled();
   }
 
   private async closeMcpSessions(): Promise<void> {

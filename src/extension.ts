@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { BridgeHttpServer } from "./bridgeHttpServer.js";
+import { getBridgeConfiguration, getWriteToolsEnabled } from "./configuration.js";
 
 let bridge: BridgeHttpServer | undefined;
 let updateStatusBarQuickAccessTooltip: (() => void) | undefined;
@@ -292,9 +293,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  const autoStart = vscode.workspace
-    .getConfiguration("vscodeLspMcpBridge")
-    .get<boolean>("autoStart", true);
+  const autoStart = getBridgeConfiguration().get<boolean>("autoStart", true);
 
   if (autoStart) {
     try {
@@ -346,12 +345,15 @@ function registerStatusBarQuickAccess(context: vscode.ExtensionContext): void {
   item.command = "vscode-lsp-mcp-bridge.openQuickAccess";
   item.show();
 
+  let previousTooltip = "";
   updateStatusBarQuickAccessTooltip = () => {
-    item.tooltip = statusBarQuickAccessTooltip();
+    const nextTooltip = statusBarQuickAccessTooltip();
+    if (nextTooltip !== previousTooltip) {
+      item.tooltip = nextTooltip;
+      previousTooltip = nextTooltip;
+    }
   };
   updateStatusBarQuickAccessTooltip();
-
-  const refreshTimer = setInterval(refreshStatusBarQuickAccessTooltip, 15_000);
 
   context.subscriptions.push(
     item,
@@ -363,8 +365,12 @@ function registerStatusBarQuickAccess(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       refreshStatusBarQuickAccessTooltip();
     }),
+    vscode.window.onDidChangeWindowState(event => {
+      if (event.focused) {
+        refreshStatusBarQuickAccessTooltip();
+      }
+    }),
     new vscode.Disposable(() => {
-      clearInterval(refreshTimer);
       updateStatusBarQuickAccessTooltip = undefined;
     })
   );
@@ -372,9 +378,7 @@ function registerStatusBarQuickAccess(context: vscode.ExtensionContext): void {
 
 async function updateWriteToolsGlobally(enabled: boolean): Promise<void> {
   try {
-    await vscode.workspace
-      .getConfiguration("vscodeLspMcpBridge")
-      .update("enableWriteTools", enabled, vscode.ConfigurationTarget.Global);
+    await getBridgeConfiguration().update("enableWriteTools", enabled, vscode.ConfigurationTarget.Global);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     vscode.window.showWarningMessage(`LSP MCP Bridge write tools could not be updated: ${message}`);
@@ -394,9 +398,7 @@ function statusBarQuickAccessTooltip(): string {
   const bridgeInfo = bridge?.getStatusBarInfo();
   const connected = bridgeInfo?.connected ?? false;
   const activeWorkspace = bridgeInfo?.activeWorkspace ?? currentWorkspaceDisplayName();
-  const writeToolsEnabled = vscode.workspace
-    .getConfiguration("vscodeLspMcpBridge")
-    .get<boolean>("enableWriteTools", false);
+  const writeToolsEnabled = getWriteToolsEnabled();
 
   return [
     "LSP MCP Bridge",

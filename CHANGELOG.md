@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.7
+
+- Refreshes the write-tools tooltip from VS Code events instead of polling.
+
+## 0.2.6
+
+- Keeps write-tools status and permission checks tied to the global setting across VS Code windows.
+- Refreshes the status bar tooltip when another window changes the write-tools setting.
+
 ## 0.2.5
 
 - Makes the write-tools setting global instead of workspace-specific.
