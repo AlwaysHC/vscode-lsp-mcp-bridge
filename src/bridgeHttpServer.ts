@@ -42,6 +42,11 @@ interface GatewayEndpoint {
   token: string;
 }
 
+export interface BridgeStatusBarInfo {
+  connected: boolean;
+  activeWorkspace: string;
+}
+
 interface JsonRpcRequest {
   jsonrpc?: string;
   id?: string | number | null;
@@ -96,10 +101,26 @@ export class BridgeHttpServer {
     return this.server !== undefined && this.connectionInfo !== undefined;
   }
 
+  getStatusBarInfo(): BridgeStatusBarInfo {
+    const activeWorkspace = this.role === "gateway"
+      ? this.activeWorkspace()?.name ?? this.workspaceDisplayName()
+      : this.workspaceDisplayName();
+
+    return {
+      connected: this.isRunning,
+      activeWorkspace
+    };
+  }
+
   get status(): string {
     const version = this.extensionVersion();
+    const writeToolsEnabled = vscode.workspace
+      .getConfiguration("vscodeLspMcpBridge")
+      .get<boolean>("enableWriteTools", false);
+    const writeToolsLine = `Write tools: ${writeToolsEnabled ? "enabled" : "disabled"}`;
+
     if (!this.connectionInfo || !this.connectionFile) {
-      return ["VS Code LSP MCP Bridge is stopped.", `Version: ${version}`].join("\n");
+      return ["VS Code LSP MCP Bridge is stopped.", `Version: ${version}`, writeToolsLine].join("\n");
     }
 
     const gatewayConnection = this.gatewayConnectionValues();
@@ -115,6 +136,7 @@ export class BridgeHttpServer {
     const lines = [
       `VS Code LSP MCP Bridge is running as ${this.role ?? "server"}.`,
       `Version: ${version}`,
+      writeToolsLine,
       ...endpointLines,
       `Connection file: ${this.connectionFile}`,
       `Workspace folders: ${this.connectionInfo.workspaceFolders.length}`

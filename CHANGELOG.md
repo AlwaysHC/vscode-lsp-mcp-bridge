@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+- Adds LSP MCP Bridge status bar quick access with server, write-tools, and active-workspace hover status.
+- Adds quick-access commands to enable or disable write tools without manually editing VS Code settings.
+- Shows write-tools state in the bridge status dialog.
+
 ## 0.2.3
 
 - Enhance symbol query handling and improve document symbol retrieval
