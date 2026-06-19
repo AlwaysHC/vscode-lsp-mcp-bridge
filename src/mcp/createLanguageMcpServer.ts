@@ -6,7 +6,7 @@ export function createLanguageMcpServer(allowWrites: () => boolean): McpServer {
   const server = new McpServer(
     {
       name: "vscode-lsp-mcp-bridge",
-      version: "0.2.2"
+      version: "0.2.3"
     },
     {
       instructions: [

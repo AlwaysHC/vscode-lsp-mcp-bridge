@@ -18,6 +18,12 @@ interface ResolvedSymbolQuery {
   candidates: vscode.SymbolInformation[];
 }
 
+interface FlattenedDocumentSymbol {
+  symbol: vscode.DocumentSymbol;
+  containerName: string;
+  uri: vscode.Uri;
+}
+
 interface WriteApprovalRequest {
   toolName: string;
   operation: string;
@@ -507,7 +513,7 @@ async function resolveWorkspaceSymbolQuery(args: Record<string, unknown>): Promi
     kind: optionalStringArg(args, "kind")
   };
   const maxCandidates = optionalPositiveIntegerArg(args, "maxCandidates", 10);
-  const candidates = rankWorkspaceSymbols(await workspaceSymbolsForQuery(query), hints).slice(0, maxCandidates);
+  const candidates = rankWorkspaceSymbols(await symbolsForQuery(hints), hints).slice(0, maxCandidates);
   return {
     query,
     selectedSymbol: candidates[0]?.symbol,
@@ -601,6 +607,86 @@ async function workspaceSymbolsForQuery(query: string): Promise<vscode.SymbolInf
   return [...symbols.values()];
 }
 
+async function symbolsForQuery(hints: SymbolHints): Promise<vscode.SymbolInformation[]> {
+  const symbols = new Map<string, vscode.SymbolInformation>();
+
+  for (const symbol of await workspaceSymbolsForQuery(hints.query)) {
+    symbols.set(workspaceSymbolKey(symbol), symbol);
+  }
+
+  for (const symbol of await documentSymbolsForQuery(hints)) {
+    symbols.set(workspaceSymbolKey(symbol), symbol);
+  }
+
+  return [...symbols.values()];
+}
+
+async function documentSymbolsForQuery(hints: SymbolHints): Promise<vscode.SymbolInformation[]> {
+  const uris = await documentSymbolSearchUris(hints);
+  const result: vscode.SymbolInformation[] = [];
+
+  for (const uri of uris) {
+    const values = await vscode.commands.executeCommand<Array<vscode.DocumentSymbol | vscode.SymbolInformation>>(
+      "vscode.executeDocumentSymbolProvider",
+      uri
+    );
+
+    for (const symbol of flattenDocumentSymbols(uri, values ?? [])) {
+      result.push(new vscode.SymbolInformation(
+        symbol.symbol.name,
+        symbol.symbol.kind,
+        symbol.containerName,
+        new vscode.Location(uri, symbol.symbol.selectionRange)
+      ));
+    }
+  }
+
+  return result;
+}
+
+async function documentSymbolSearchUris(hints: SymbolHints): Promise<vscode.Uri[]> {
+  if (hints.file) {
+    return [await openDocumentUri(hints.file)];
+  }
+
+  const containerName = hints.containerName ?? hints.query.split(".").filter(Boolean).slice(0, -1).join(".");
+  const leafContainerName = containerName.split(".").filter(Boolean).at(-1);
+  if (!leafContainerName) {
+    return [];
+  }
+
+  const files = await vscode.workspace.findFiles(
+    `**/${leafContainerName}.*`,
+    "**/{node_modules,bin,obj,dist,out,build,.git}/**",
+    25
+  );
+  for (const uri of files) {
+    await vscode.workspace.openTextDocument(uri);
+  }
+
+  return files;
+}
+
+function flattenDocumentSymbols(
+  uri: vscode.Uri,
+  values: Array<vscode.DocumentSymbol | vscode.SymbolInformation>,
+  containerParts: string[] = []
+): FlattenedDocumentSymbol[] {
+  const result: FlattenedDocumentSymbol[] = [];
+
+  for (const value of values) {
+    if ("location" in value) {
+      continue;
+    }
+
+    const containerName = containerParts.join(".");
+    result.push({ symbol: value, containerName, uri });
+    result.push(...flattenDocumentSymbols(uri, value.children, [...containerParts, value.name]));
+  }
+
+  return result;
+}
+
 function workspaceSymbolKey(symbol: vscode.SymbolInformation): string {
   return [
     symbol.name,
@@ -679,14 +765,21 @@ function normalizePathForComparison(file: string): string {
 
 async function callRelationshipsForSymbol(args: Record<string, unknown>, direction: "incoming" | "outgoing"): Promise<object> {
   const resolved = await resolveWorkspaceSymbolQuery(args);
-  const relationships = resolved.selectedSymbol
-    ? await callRelationshipsAt(resolved.selectedSymbol.location.uri, resolved.selectedSymbol.location.range.start, direction)
-    : [];
   const relationshipKey = direction === "incoming" ? "callers" : "callees";
+  let selectedSymbol = resolved.selectedSymbol;
+  let relationships: object[] = [];
+
+  for (const candidate of resolved.candidates) {
+    relationships = await callRelationshipsAt(candidate.location.uri, candidate.location.range.start, direction);
+    selectedSymbol = candidate;
+    if (relationships.length > 0) {
+      break;
+    }
+  }
 
   return {
     query: resolved.query,
-    selectedSymbol: resolved.selectedSymbol ? normalizeWorkspaceSymbol(resolved.selectedSymbol) : undefined,
+    selectedSymbol: selectedSymbol ? normalizeWorkspaceSymbol(selectedSymbol) : undefined,
     candidates: resolved.candidates.map(normalizeWorkspaceSymbol),
     [relationshipKey]: relationships
   };

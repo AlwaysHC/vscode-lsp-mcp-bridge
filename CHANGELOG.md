@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Enhance symbol query handling and improve document symbol retrieval
+
 ## 0.2.2
 
 - Fixes external-client multi-window routing so existing MCP sessions execute language tools against the workspace that owns the requested file path.

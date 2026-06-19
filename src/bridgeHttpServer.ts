@@ -56,6 +56,18 @@ interface McpToolCallParams {
 
 const registrationRefreshMs = 30_000;
 const registrationStaleMs = 90_000;
+const symbolRouteMaxEntriesPerFolder = 50_000;
+const ignoredRouteDirectories = new Set([
+  ".git",
+  ".vs",
+  "bin",
+  "build",
+  "dist",
+  "node_modules",
+  "obj",
+  "out",
+  "packages"
+]);
 
 export class BridgeHttpServer {
   private server: http.Server | undefined;
@@ -965,26 +977,53 @@ export class BridgeHttpServer {
     }
 
     const file = this.toolFileArgument(request.args);
-    if (!file) {
+    if (file) {
+      this.expireStaleWorkspaces();
+      const workspaces = [...this.registeredWorkspaces.values()];
+      if (path.isAbsolute(file)) {
+        return this.workspaceContainingAbsolutePath(workspaces, file);
+      }
+
+      const matches = [];
+      for (const workspace of workspaces) {
+        for (const folder of workspace.workspaceFolders) {
+          if (await this.pathExists(path.join(folder, file))) {
+            matches.push(workspace);
+            break;
+          }
+        }
+      }
+
+      return this.selectWorkspaceMatch(matches);
+    }
+
+    return this.workspaceForSymbolQuery(request.args);
+  }
+
+  private async workspaceForSymbolQuery(args: Record<string, unknown>): Promise<RegisteredWorkspace | undefined> {
+    const containerName = this.symbolQueryContainerName(args);
+    if (!containerName) {
+      return undefined;
+    }
+
+    const leafContainerName = containerName.split(".").filter(Boolean).at(-1);
+    if (!leafContainerName) {
       return undefined;
     }
 
     this.expireStaleWorkspaces();
     const workspaces = [...this.registeredWorkspaces.values()];
-    if (path.isAbsolute(file)) {
-      return this.workspaceContainingAbsolutePath(workspaces, file);
-    }
-
     const matches = [];
     for (const workspace of workspaces) {
-      for (const folder of workspace.workspaceFolders) {
-        if (await this.pathExists(path.join(folder, file))) {
-          matches.push(workspace);
-          break;
-        }
+      if (await this.workspaceContainsFileBaseName(workspace, leafContainerName)) {
+        matches.push(workspace);
       }
     }
 
+    return this.selectWorkspaceMatch(matches);
+  }
+
+  private selectWorkspaceMatch(matches: RegisteredWorkspace[]): RegisteredWorkspace | undefined {
     if (matches.length === 1) {
       return matches[0];
     }
@@ -998,6 +1037,70 @@ export class BridgeHttpServer {
   private toolFileArgument(args: Record<string, unknown>): string | undefined {
     const file = args.file;
     return typeof file === "string" && file.trim() ? file : undefined;
+  }
+
+  private symbolQueryContainerName(args: Record<string, unknown>): string | undefined {
+    const explicitContainer = args.containerName;
+    if (typeof explicitContainer === "string" && explicitContainer.trim()) {
+      return explicitContainer.trim();
+    }
+
+    const query = args.query;
+    if (typeof query !== "string" || !query.trim()) {
+      return undefined;
+    }
+
+    const queryParts = query.split(".").filter(Boolean);
+    return queryParts.length > 1 ? queryParts.slice(0, -1).join(".") : undefined;
+  }
+
+  private async workspaceContainsFileBaseName(
+    workspace: RegisteredWorkspace,
+    baseName: string
+  ): Promise<boolean> {
+    for (const folder of workspace.workspaceFolders) {
+      if (await this.folderContainsFileBaseName(folder, baseName)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private async folderContainsFileBaseName(folder: string, baseName: string): Promise<boolean> {
+    const expectedPrefix = `${baseName.toLowerCase()}.`;
+    const pending = [folder];
+    let visited = 0;
+
+    while (pending.length > 0 && visited < symbolRouteMaxEntriesPerFolder) {
+      const current = pending.pop();
+      if (!current) {
+        continue;
+      }
+
+      let entries;
+      try {
+        entries = await fs.readdir(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        visited += 1;
+        if (entry.isDirectory()) {
+          if (!ignoredRouteDirectories.has(entry.name)) {
+            pending.push(path.join(current, entry.name));
+          }
+          continue;
+        }
+
+        if (entry.isFile() && entry.name.toLowerCase().startsWith(expectedPrefix)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   private workspaceContainingAbsolutePath(
