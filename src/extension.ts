@@ -217,7 +217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         "Enable LSP MCP Bridge write tools?",
         {
           modal: true,
-          detail: "This updates the VS Code extension setting. Each write-capable tool call still requires a VS Code approval before edits are applied."
+          detail: "This updates the global VS Code extension setting. Each write-capable tool call still requires a VS Code approval before edits are applied."
         },
         enableWriteToolsAction
       );
@@ -225,10 +225,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      await updateWriteToolsForCurrentScope(true);
+      await updateWriteToolsGlobally(true);
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.disableWriteTools", async () => {
-      await updateWriteToolsForCurrentScope(false);
+      await updateWriteToolsGlobally(false);
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.copyClientConfig", async () => {
       await bridge?.start();
@@ -370,15 +370,11 @@ function registerStatusBarQuickAccess(context: vscode.ExtensionContext): void {
   );
 }
 
-async function updateWriteToolsForCurrentScope(enabled: boolean): Promise<void> {
-  const hasWorkspace = Boolean(vscode.workspace.workspaceFolders?.length);
-  const target = hasWorkspace ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
-  const scope = hasWorkspace ? "this workspace" : "your user settings";
-
+async function updateWriteToolsGlobally(enabled: boolean): Promise<void> {
   try {
     await vscode.workspace
       .getConfiguration("vscodeLspMcpBridge")
-      .update("enableWriteTools", enabled, target);
+      .update("enableWriteTools", enabled, vscode.ConfigurationTarget.Global);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     vscode.window.showWarningMessage(`LSP MCP Bridge write tools could not be updated: ${message}`);
@@ -387,7 +383,7 @@ async function updateWriteToolsForCurrentScope(enabled: boolean): Promise<void> 
 
   const state = enabled ? "enabled" : "disabled";
   refreshStatusBarQuickAccessTooltip();
-  vscode.window.showInformationMessage(`LSP MCP Bridge write tools ${state} for ${scope}.`);
+  vscode.window.showInformationMessage(`LSP MCP Bridge write tools ${state} globally.`);
 }
 
 function refreshStatusBarQuickAccessTooltip(): void {

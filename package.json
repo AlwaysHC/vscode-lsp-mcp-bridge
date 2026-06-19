@@ -2,7 +2,7 @@
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "VS Code LSP MCP Bridge",
   "description": "Expose VS Code language intelligence as a local MCP server for AI coding tools.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "publisher": "georgiana-alba",
   "license": "MIT",
@@ -172,6 +172,7 @@
         "vscodeLspMcpBridge.enableWriteTools": {
           "type": "boolean",
           "default": false,
+          "scope": "application",
           "description": "Enable MCP tools that can apply workspace edits, such as code actions, rename, and formatting. Each write still requires a VS Code approval prompt."
         }
       }

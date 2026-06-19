@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- Makes the write-tools setting global instead of workspace-specific.
+
 ## 0.2.4
 
 - Adds LSP MCP Bridge status bar quick access with server, write-tools, and active-workspace hover status.
