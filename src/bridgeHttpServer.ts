@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 import { getBridgeConfiguration, getWriteToolsEnabled } from "./configuration.js";
 import { runLanguageTool } from "./languageTools.js";
 import { createLanguageMcpServer } from "./mcp/createLanguageMcpServer.js";
+import { showStatusNotification } from "./notifications.js";
 import { defaultConnectionFilePath } from "./shared/paths.js";
 import {
   BRIDGE_VERSION,
@@ -614,7 +615,7 @@ export class BridgeHttpServer {
       await this.refreshGatewayRegistration(true);
       await this.writeConnectionFile();
       this.startRegistrationHeartbeat();
-      vscode.window.showInformationMessage(
+      showStatusNotification(
         `VS Code LSP MCP Bridge registered this workspace with the external-client gateway at http://${host}:${gatewayPort}/mcp.`
       );
     } catch (error) {

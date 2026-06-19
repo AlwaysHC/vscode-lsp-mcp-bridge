@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.8
+
+- Adds configurable timed status bar notifications for passive extension feedback.
+
 ## 0.2.7
 
 - Refreshes the write-tools tooltip from VS Code events instead of polling.

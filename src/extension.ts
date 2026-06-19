@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { BridgeHttpServer } from "./bridgeHttpServer.js";
 import { getBridgeConfiguration, getWriteToolsEnabled } from "./configuration.js";
+import { showStatusNotification } from "./notifications.js";
 
 let bridge: BridgeHttpServer | undefined;
 let updateStatusBarQuickAccessTooltip: (() => void) | undefined;
@@ -185,12 +186,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.start", async () => {
       await bridge?.start();
       refreshStatusBarQuickAccessTooltip();
-      vscode.window.showInformationMessage("VS Code LSP MCP Bridge started.");
+      showStatusNotification("VS Code LSP MCP Bridge started.");
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.stop", async () => {
       await bridge?.stop();
       refreshStatusBarQuickAccessTooltip();
-      vscode.window.showInformationMessage("VS Code LSP MCP Bridge stopped.");
+      showStatusNotification("VS Code LSP MCP Bridge stopped.");
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.showStatus", () => {
       vscode.window.showInformationMessage(bridge?.status ?? "VS Code LSP MCP Bridge is not initialized.", {
@@ -199,17 +200,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.useWorkspace", async () => {
       if (!bridge) {
-        vscode.window.showWarningMessage("VS Code LSP MCP Bridge is not initialized.");
+        showStatusNotification("VS Code LSP MCP Bridge is not initialized.");
         return;
       }
 
       try {
         const message = await bridge.useThisWorkspace();
         refreshStatusBarQuickAccessTooltip();
-        vscode.window.showInformationMessage(message);
+        showStatusNotification(message);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        vscode.window.showWarningMessage(`VS Code LSP MCP Bridge could not activate this workspace: ${message}`);
+        showStatusNotification(`VS Code LSP MCP Bridge could not activate this workspace: ${message}`);
         refreshStatusBarQuickAccessTooltip();
       }
     }),
@@ -235,7 +236,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await bridge?.start();
       refreshStatusBarQuickAccessTooltip();
       if (!bridge) {
-        vscode.window.showWarningMessage("VS Code LSP MCP Bridge is not initialized.");
+        showStatusNotification("VS Code LSP MCP Bridge is not initialized.");
         return;
       }
 
@@ -258,13 +259,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       await vscode.env.clipboard.writeText(snippet);
-      vscode.window.showInformationMessage(`${selected.label} MCP config copied to clipboard.`);
+      showStatusNotification(`${selected.label} MCP config copied to clipboard.`);
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.openClientConfig", async () => {
       await bridge?.start();
       refreshStatusBarQuickAccessTooltip();
       if (!bridge) {
-        vscode.window.showWarningMessage("VS Code LSP MCP Bridge is not initialized.");
+        showStatusNotification("VS Code LSP MCP Bridge is not initialized.");
         return;
       }
 
@@ -278,7 +279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const filePath = selected.getPath();
       if (!filePath) {
-        vscode.window.showWarningMessage("Open a workspace before selecting a workspace-level MCP config file.");
+        showStatusNotification("Open a workspace before selecting a workspace-level MCP config file.");
         return;
       }
 
@@ -289,7 +290,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const snippet = bridge.getClientConfigSnippet(selected.snippetClientId);
       await vscode.env.clipboard.writeText(snippet);
-      vscode.window.showInformationMessage(`${selected.label} opened. MCP config snippet copied to clipboard.`);
+      showStatusNotification(`${selected.label} opened. MCP config snippet copied to clipboard.`);
     })
   );
 
@@ -300,7 +301,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await bridge.start();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      vscode.window.showWarningMessage(`VS Code LSP MCP Bridge did not start: ${message}`);
+      showStatusNotification(`VS Code LSP MCP Bridge did not start: ${message}`);
     } finally {
       refreshStatusBarQuickAccessTooltip();
     }
@@ -381,13 +382,13 @@ async function updateWriteToolsGlobally(enabled: boolean): Promise<void> {
     await getBridgeConfiguration().update("enableWriteTools", enabled, vscode.ConfigurationTarget.Global);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    vscode.window.showWarningMessage(`LSP MCP Bridge write tools could not be updated: ${message}`);
+    showStatusNotification(`LSP MCP Bridge write tools could not be updated: ${message}`);
     return;
   }
 
   const state = enabled ? "enabled" : "disabled";
   refreshStatusBarQuickAccessTooltip();
-  vscode.window.showInformationMessage(`LSP MCP Bridge write tools ${state} globally.`);
+  showStatusNotification(`LSP MCP Bridge write tools ${state} globally.`);
 }
 
 function refreshStatusBarQuickAccessTooltip(): void {

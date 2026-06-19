@@ -11,3 +11,7 @@ export function getWriteToolsEnabled(): boolean {
   const inspected = config.inspect<boolean>("enableWriteTools");
   return inspected?.globalValue ?? config.get<boolean>("enableWriteTools", false);
 }
+
+export function getNotificationDurationMs(): number {
+  return getBridgeConfiguration().get<number>("notificationDurationMs", 5_000);
+}
