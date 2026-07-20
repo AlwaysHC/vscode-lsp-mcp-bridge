@@ -1,5 +1,7 @@
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { brand, brandAttribution } from "./branding.js";
 
 interface ToolOptions {
   allowWrites: boolean;
@@ -139,7 +141,8 @@ export async function runLanguageTool(
 
 function semanticNavigationGuide(): object {
   return {
-    purpose: "Use VS Code language providers for semantic code navigation before text search.",
+    attribution: brandAttribution,
+    purpose: brand("Use VS Code language providers for semantic code navigation before text search."),
     primaryRules: [
       "For 'who calls X', 'incoming calls', 'callers', or call-site questions with a known symbol name, call find_callers_for_symbol first.",
       "For 'what does X call', 'outgoing calls', or callees with a known symbol name, call find_callees_for_symbol first.",
@@ -171,23 +174,115 @@ async function executeDocument<T>(command: string, args: Record<string, unknown>
 }
 
 async function openDocumentUri(file: string): Promise<vscode.Uri> {
-  const resolved = resolveFilePath(file);
-  const uri = vscode.Uri.file(resolved);
+  const uri = await resolveFileUri(file);
   await vscode.workspace.openTextDocument(uri);
   return uri;
 }
 
-function resolveFilePath(file: string): string {
-  return path.isAbsolute(file) ? file : path.join(firstWorkspaceFolder(), file);
-}
-
-function firstWorkspaceFolder(): string {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) {
+async function resolveFileUri(file: string): Promise<vscode.Uri> {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  if (folders.length === 0) {
     throw new Error("No workspace folder is open in VS Code.");
   }
 
-  return folder.uri.fsPath;
+  const absolute = isAbsoluteFilePath(file);
+  const candidates = absolute
+    ? folders.flatMap(folder => {
+        const relative = relativePathWithinFolder(
+          folder.uri.fsPath,
+          file,
+          folder.uri.scheme === "file" && process.platform === "win32"
+        );
+        return relative === undefined ? [] : [vscode.Uri.joinPath(folder.uri, ...pathSegments(relative))];
+      })
+    : folders.map(folder => vscode.Uri.joinPath(folder.uri, ...pathSegments(file)));
+  const contained = candidates.filter(isUriInWorkspace);
+  if (contained.length === 0) {
+    throw new Error(`File is outside the open workspace: ${file}`);
+  }
+
+  const existing = [];
+  for (const candidate of contained) {
+    try {
+      await vscode.workspace.fs.stat(candidate);
+      existing.push(candidate);
+    } catch {
+      // Keep searching the remaining workspace roots.
+    }
+  }
+
+  if (existing.length > 1) {
+    throw new Error(`Relative file path is ambiguous across workspace folders: ${file}`);
+  }
+
+  const resolved = existing[0] ?? (contained.length === 1 ? contained[0] : undefined);
+  if (!resolved) {
+    throw new Error(`File was not found in any workspace folder: ${file}`);
+  }
+
+  await ensureCanonicalWorkspaceContainment(resolved);
+  return resolved;
+}
+
+function isAbsoluteFilePath(file: string): boolean {
+  return path.isAbsolute(file) || file.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(file);
+}
+
+function pathSegments(file: string): string[] {
+  return file.split(/[\\/]+/u).filter(segment => segment && segment !== ".");
+}
+
+function relativePathWithinFolder(folder: string, file: string, caseInsensitive: boolean): string | undefined {
+  const normalizedFolder = normalizeFsPath(folder, caseInsensitive).replace(/\/$/u, "");
+  const normalizedFile = normalizeFsPath(file, caseInsensitive);
+  if (normalizedFile === normalizedFolder) {
+    return "";
+  }
+  return normalizedFile.startsWith(`${normalizedFolder}/`)
+    ? file.replace(/\\/gu, "/").slice(folder.replace(/\\/gu, "/").replace(/\/$/u, "").length + 1)
+    : undefined;
+}
+
+function normalizeFsPath(value: string, caseInsensitive: boolean): string {
+  const normalized = value.replace(/\\/gu, "/");
+  return caseInsensitive ? normalized.toLowerCase() : normalized;
+}
+
+function isUriInWorkspace(uri: vscode.Uri): boolean {
+  return (vscode.workspace.workspaceFolders ?? []).some(folder => {
+    if (folder.uri.scheme !== uri.scheme || folder.uri.authority !== uri.authority) {
+      return false;
+    }
+    const caseInsensitive = uri.scheme === "file" && process.platform === "win32";
+    const folderPath = normalizeFsPath(folder.uri.path, caseInsensitive).replace(/\/$/u, "");
+    const uriPath = normalizeFsPath(uri.path, caseInsensitive);
+    return uriPath === folderPath || uriPath.startsWith(`${folderPath}/`);
+  });
+}
+
+async function ensureCanonicalWorkspaceContainment(uri: vscode.Uri): Promise<void> {
+  if (!isUriInWorkspace(uri)) {
+    throw new Error(`File is outside the open workspace: ${uri.toString(true)}`);
+  }
+  if (uri.scheme !== "file") {
+    return;
+  }
+
+  const target = await fs.realpath(uri.fsPath);
+  const roots = await Promise.all(
+    (vscode.workspace.workspaceFolders ?? [])
+      .filter(folder => folder.uri.scheme === "file")
+      .map(folder => fs.realpath(folder.uri.fsPath))
+  );
+  const caseInsensitive = process.platform === "win32";
+  const normalizedTarget = normalizeFsPath(target, caseInsensitive);
+  const contained = roots.some(root => {
+    const normalizedRoot = normalizeFsPath(root, caseInsensitive).replace(/\/$/u, "");
+    return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`);
+  });
+  if (!contained) {
+    throw new Error(`File resolves outside the open workspace: ${uri.fsPath}`);
+  }
 }
 
 function stringArg(args: Record<string, unknown>, key: string): string {
@@ -240,8 +335,8 @@ function optionalPositiveIntegerArg(args: Record<string, unknown>, key: string, 
     return defaultValue;
   }
 
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
-    throw new Error(`Expected optional positive integer argument: ${key}`);
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 10_000) {
+    throw new Error(`Expected optional positive integer argument no greater than 10000: ${key}`);
   }
 
   return value;
@@ -303,8 +398,13 @@ function rangeArg(args: Record<string, unknown>): vscode.Range {
 }
 
 function optionalRangeArg(args: Record<string, unknown>, document: vscode.TextDocument): vscode.Range {
-  if (optionalOneBasedNumberArg(args, "startLine") === undefined) {
+  const keys = ["startLine", "startColumn", "endLine", "endColumn"] as const;
+  const values = keys.map(key => optionalOneBasedNumberArg(args, key));
+  if (values.every(value => value === undefined)) {
     return fullDocumentRange(document);
+  }
+  if (values.some(value => value === undefined)) {
+    throw new Error("startLine, startColumn, endLine, and endColumn must be provided together.");
   }
 
   return rangeArg(args);
@@ -382,6 +482,9 @@ async function normalizeLocationWithSourceLine(value: vscode.Location | vscode.L
 }
 
 async function sourceLine(uri: vscode.Uri, zeroBasedLine: number): Promise<{ sourceLine: string } | object> {
+  if (!isUriInWorkspace(uri)) {
+    return {};
+  }
   try {
     const document = await openTextDocumentByUri(uri);
     return { sourceLine: truncateSourceLine(document.lineAt(zeroBasedLine).text.trim()) };
@@ -484,7 +587,7 @@ async function diagnostics(args: Record<string, unknown>): Promise<object[]> {
     const uri = await openDocumentUri(file);
     entries.push([uri, vscode.languages.getDiagnostics(uri)]);
   } else {
-    entries.push(...vscode.languages.getDiagnostics());
+    entries.push(...vscode.languages.getDiagnostics().filter(([uri]) => isUriInWorkspace(uri)));
   }
 
   return entries.map(([uri, diagnosticsForUri]) => ({
@@ -513,7 +616,8 @@ async function resolveWorkspaceSymbolQuery(args: Record<string, unknown>): Promi
     kind: optionalStringArg(args, "kind")
   };
   const maxCandidates = optionalPositiveIntegerArg(args, "maxCandidates", 10);
-  const candidates = rankWorkspaceSymbols(await symbolsForQuery(hints), hints).slice(0, maxCandidates);
+  const requestedFile = hints.file ? await resolveFileUri(hints.file) : undefined;
+  const candidates = rankWorkspaceSymbols(await symbolsForQuery(hints), hints, requestedFile).slice(0, maxCandidates);
   return {
     query,
     selectedSymbol: candidates[0]?.symbol,
@@ -599,7 +703,7 @@ async function workspaceSymbolsForQuery(query: string): Promise<vscode.SymbolInf
       workspaceQuery
     );
 
-    for (const symbol of values ?? []) {
+    for (const symbol of (values ?? []).filter(symbol => isUriInWorkspace(symbol.location.uri))) {
       symbols.set(workspaceSymbolKey(symbol), symbol);
     }
   }
@@ -699,18 +803,19 @@ function workspaceSymbolKey(symbol: vscode.SymbolInformation): string {
 
 function rankWorkspaceSymbols(
   symbols: vscode.SymbolInformation[],
-  hints: SymbolHints
+  hints: SymbolHints,
+  requestedFile: vscode.Uri | undefined
 ): Array<{ symbol: vscode.SymbolInformation; score: number }> {
   const query = hints.query.toLowerCase();
   const queryParts = hints.query.split(".").filter(Boolean);
   const requestedName = (queryParts[queryParts.length - 1] ?? hints.query).toLowerCase();
   const requestedContainer = (hints.containerName ?? queryParts.slice(0, -1).join(".")).toLowerCase();
-  const requestedFile = hints.file ? normalizePathForComparison(resolveFilePath(hints.file)) : undefined;
+  const requestedFileKey = requestedFile ? normalizeUriForComparison(requestedFile) : undefined;
   const requestedKind = hints.kind?.toLowerCase();
 
   return symbols
     .filter(symbol => {
-      if (requestedFile && normalizePathForComparison(symbol.location.uri.fsPath) !== requestedFile) {
+      if (requestedFileKey && normalizeUriForComparison(symbol.location.uri) !== requestedFileKey) {
         return false;
       }
 
@@ -759,8 +864,10 @@ function rankWorkspaceSymbols(
     .sort((left, right) => right.score - left.score);
 }
 
-function normalizePathForComparison(file: string): string {
-  return path.normalize(file).toLowerCase();
+function normalizeUriForComparison(uri: vscode.Uri): string {
+  const caseInsensitive = uri.scheme === "file" && process.platform === "win32";
+  const uriPath = normalizeFsPath(uri.path, caseInsensitive);
+  return `${uri.scheme}://${uri.authority}${uriPath}`;
 }
 
 async function callRelationshipsForSymbol(args: Record<string, unknown>, direction: "incoming" | "outgoing"): Promise<object> {
@@ -1308,7 +1415,7 @@ function normalizeCodeAction(action: CodeActionLike, index: number): object {
 }
 
 function isCodeAction(action: CodeActionLike): action is vscode.CodeAction {
-  return "diagnostics" in action || "edit" in action || "kind" in action || "isPreferred" in action;
+  return typeof action.command !== "string";
 }
 
 function normalizeCommand(command: vscode.Command | undefined): object | undefined {
@@ -1405,8 +1512,10 @@ async function applySelectedCodeAction(
 ): Promise<{ approved: boolean; appliedEdit: boolean; executedCommand: boolean }> {
   const { action } = selected;
   const edit = isCodeAction(action) ? action.edit : undefined;
+  const safeEdit = textOnlyWorkspaceEdit(edit);
   const command = isCodeAction(action) ? action.command : action;
   const commandToExecute = executeCommand ? command : undefined;
+  ensureWorkspaceEditCanBeApplied(edit);
   const needsApproval = Boolean(edit || commandToExecute);
   if (needsApproval) {
     const approved = await requestWriteApproval({
@@ -1420,8 +1529,12 @@ async function applySelectedCodeAction(
     }
   }
 
-  const appliedEdit = edit ? await vscode.workspace.applyEdit(edit) : false;
+  const appliedEdit = safeEdit ? await vscode.workspace.applyEdit(safeEdit) : false;
   let executedCommand = false;
+
+  if (edit && !appliedEdit) {
+    return { approved: true, appliedEdit: false, executedCommand: false };
+  }
 
   if (commandToExecute) {
     await vscode.commands.executeCommand(commandToExecute.command, ...(commandToExecute.arguments ?? []));
@@ -1514,6 +1627,7 @@ async function rename(
   const apply = optionalBooleanArg(args, "apply") && !options.forcePreviewOnly;
   if (apply) {
     ensureWritesAllowed(options);
+    ensureWorkspaceEditCanBeApplied(edit);
     const approved = await requestWriteApproval({
       toolName: "rename_symbol",
       operation: `Rename symbol to "${stringArg(args, "newName")}"`,
@@ -1524,7 +1638,8 @@ async function rename(
       return { approved: false, applied: false, edit: normalized };
     }
 
-    const applied = edit ? await vscode.workspace.applyEdit(edit) : false;
+    const safeEdit = textOnlyWorkspaceEdit(edit);
+    const applied = safeEdit ? await vscode.workspace.applyEdit(safeEdit) : false;
     return { approved: true, applied, edit: normalized };
   }
 
@@ -1548,7 +1663,7 @@ function normalizePrepareRename(value: vscode.Range | { range: vscode.Range; pla
 
 function ensureWritesAllowed(options: ToolOptions): void {
   if (!options.allowWrites) {
-    throw new Error("Write tools are disabled. Enable vscodeLspMcpBridge.enableWriteTools to apply edits.");
+    throw new Error(brand("Write tools are disabled. Enable vscodeLspMcpBridge.enableWriteTools to apply edits."));
   }
 }
 
@@ -1559,24 +1674,25 @@ async function requestWriteApproval(request: WriteApprovalRequest): Promise<bool
     : ["- No affected file reported by the provider"];
   const remainingFiles = files.length > 10 ? `\n- ...and ${files.length - 10} more` : "";
   const details = [
-    `Tool: ${request.toolName}`,
-    `Operation: ${request.operation}`,
-    request.actionTitle ? `Action: ${request.actionTitle}` : undefined,
-    `Text edit groups: ${request.editCount ?? 0}`,
-    request.command ? `Command: ${request.command.title} (${request.command.command})` : undefined,
-    `Affected files:\n${fileLines.join("\n")}${remainingFiles}`
+    brandAttribution,
+    brand(`Tool: ${request.toolName}`),
+    brand(`Operation: ${request.operation}`),
+    request.actionTitle ? brand(`Action: ${request.actionTitle}`) : undefined,
+    brand(`Text edit groups: ${request.editCount ?? 0}`),
+    request.command ? brand(`Command: ${request.command.title} (${request.command.command})`) : undefined,
+    brand(`Affected files:\n${fileLines.join("\n")}${remainingFiles}`)
   ].filter((value): value is string => Boolean(value)).join("\n\n");
 
   const choice = await vscode.window.showWarningMessage(
-    `Allow MCP write tool "${request.toolName}" to apply changes?`,
+    brand(`Allow MCP write tool "${request.toolName}" to apply changes?`),
     {
       modal: true,
       detail: details
     },
-    "Apply Changes"
+    brand("Apply Changes")
   );
 
-  return choice === "Apply Changes";
+  return choice === brand("Apply Changes");
 }
 
 function uniqueUris(uris: vscode.Uri[]): vscode.Uri[] {
@@ -1597,6 +1713,34 @@ function affectedFilesFromWorkspaceEdit(edit: vscode.WorkspaceEdit | undefined):
   return edit?.entries().map(([uri]) => uri) ?? [];
 }
 
+function ensureWorkspaceEditCanBeApplied(edit: vscode.WorkspaceEdit | undefined): void {
+  if (!edit) {
+    return;
+  }
+
+  const entries = edit.entries();
+  if (edit.size !== entries.length) {
+    throw new Error(
+      "The language provider returned file create, delete, rename, notebook, or other non-text operations that cannot be safely previewed. The edit was not applied."
+    );
+  }
+  const outsideWorkspace = entries.map(([uri]) => uri).find(uri => !isUriInWorkspace(uri));
+  if (outsideWorkspace) {
+    throw new Error(`The language provider attempted to edit a file outside the open workspace: ${outsideWorkspace.toString(true)}`);
+  }
+}
+
+function textOnlyWorkspaceEdit(edit: vscode.WorkspaceEdit | undefined): vscode.WorkspaceEdit | undefined {
+  if (!edit) {
+    return undefined;
+  }
+  const safeEdit = new vscode.WorkspaceEdit();
+  for (const [uri, edits] of edit.entries()) {
+    safeEdit.set(uri, edits);
+  }
+  return safeEdit;
+}
+
 function formatUriForApproval(uri: vscode.Uri): string {
   return uri.scheme === "file" ? vscode.workspace.asRelativePath(uri, false) : uri.toString(true);
 }
@@ -1613,9 +1757,12 @@ function normalizeWorkspaceEdit(edit: vscode.WorkspaceEdit | undefined): object 
     return undefined;
   }
 
+  const entries = edit.entries();
   return {
     size: edit.size,
-    entries: edit.entries().map(([uri, edits]) => ({
+    containsUnpreviewableOperations: edit.size !== entries.length,
+    resourceOperationsExcludedOnApply: true,
+    entries: entries.map(([uri, edits]) => ({
       file: uri.fsPath,
       edits: edits.map(normalizeTextEdit)
     }))

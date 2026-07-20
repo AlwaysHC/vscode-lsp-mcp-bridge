@@ -33,7 +33,7 @@ Input:
 
 ```json
 {
-  "file": "absolute/or/workspace/relative/path.cs",
+  "file": "absolute-within-workspace/or/workspace-relative/path.cs",
   "line": 10,
   "column": 15
 }
@@ -88,7 +88,7 @@ Document input:
 
 ```json
 {
-  "file": "absolute/or/workspace/relative/path.cs"
+  "file": "absolute-within-workspace/or/workspace-relative/path.cs"
 }
 ```
 

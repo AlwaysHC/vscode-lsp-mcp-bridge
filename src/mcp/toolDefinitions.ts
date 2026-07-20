@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { brand } from "../branding.js";
 
 export interface ToolDefinition {
   name: string;
@@ -9,7 +10,7 @@ export interface ToolDefinition {
 }
 
 const documentSchema = {
-  file: z.string().describe("Absolute or workspace-relative file path.")
+  file: z.string().min(1).max(32_768).describe("Workspace-relative path, or an absolute path within the open workspace.")
 };
 
 const positionSchema = {
@@ -43,7 +44,7 @@ const formattingSchema = {
 const codeActionSchema = {
   ...optionalRangeSchema,
   kind: z.string().optional().describe("Optional code action kind, for example quickfix, refactor, source.organizeImports, or source.fixAll."),
-  itemResolveCount: z.number().int().positive().optional().describe("Maximum number of actions to resolve.")
+  itemResolveCount: z.number().int().positive().max(10_000).optional().describe("Maximum number of actions to resolve.")
 };
 
 const applyCodeActionSchema = {
@@ -61,15 +62,15 @@ const sourceActionSchema = {
   title: z.string().optional().describe("Optional source action title filter."),
   exactTitle: z.boolean().optional().describe("Require exact title match instead of substring match."),
   executeCommand: z.boolean().optional().describe("Execute the selected action command after applying its edit. Defaults to true."),
-  itemResolveCount: z.number().int().positive().optional().describe("Maximum number of source actions to resolve.")
+  itemResolveCount: z.number().int().positive().max(10_000).optional().describe("Maximum number of source actions to resolve.")
 };
 
 const symbolQuerySchema = {
-  query: z.string().describe("Symbol name or qualified name, for example AgendasController.GetBySalonInternal."),
+  query: z.string().min(1).max(1_000).describe("Symbol name or qualified name, for example AgendasController.GetBySalonInternal."),
   containerName: z.string().optional().describe("Optional containing type or namespace used to disambiguate matches."),
   file: z.string().optional().describe("Optional absolute or workspace-relative file path used to disambiguate matches."),
   kind: z.string().optional().describe("Optional VS Code symbol kind, for example Method, Function, Class, or Property."),
-  maxCandidates: z.number().int().positive().optional().describe("Maximum number of ranked symbol candidates to inspect.")
+  maxCandidates: z.number().int().positive().max(10_000).optional().describe("Maximum number of ranked symbol candidates to inspect.")
 };
 
 const colorSchema = {
@@ -80,7 +81,7 @@ const colorSchema = {
   alpha: z.number().min(0).max(1).optional().describe("Alpha channel from 0 to 1. Defaults to 1.")
 };
 
-export const toolDefinitions: ToolDefinition[] = [
+const baseToolDefinitions: ToolDefinition[] = [
   {
     name: "semantic_navigation_guide",
     title: "Semantic Navigation Guide",
@@ -231,7 +232,7 @@ export const toolDefinitions: ToolDefinition[] = [
     description: "Return language-provider document links for a file.",
     inputSchema: {
       ...documentSchema,
-      linkResolveCount: z.number().int().positive().optional().describe("Maximum number of unresolved links to resolve.")
+      linkResolveCount: z.number().int().positive().max(10_000).optional().describe("Maximum number of unresolved links to resolve.")
     },
     readOnly: true
   },
@@ -289,7 +290,7 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       ...positionSchema,
       triggerCharacter: z.string().optional().describe("Optional completion trigger character."),
-      itemResolveCount: z.number().int().positive().optional().describe("Maximum number of items to resolve.")
+      itemResolveCount: z.number().int().positive().max(10_000).optional().describe("Maximum number of items to resolve.")
     },
     readOnly: true
   },
@@ -309,7 +310,7 @@ export const toolDefinitions: ToolDefinition[] = [
     description: "Return language-provider code lenses for a file.",
     inputSchema: {
       ...documentSchema,
-      itemResolveCount: z.number().int().positive().optional().describe("Maximum number of code lenses to resolve.")
+      itemResolveCount: z.number().int().positive().max(10_000).optional().describe("Maximum number of code lenses to resolve.")
     },
     readOnly: true
   },
@@ -408,3 +409,9 @@ export const toolDefinitions: ToolDefinition[] = [
     readOnly: false
   }
 ];
+
+export const toolDefinitions: ToolDefinition[] = baseToolDefinitions.map(definition => ({
+  ...definition,
+  title: brand(definition.title),
+  description: brand(definition.description)
+}));

@@ -1,4 +1,4 @@
-export const BRIDGE_VERSION = 1;
+export const BRIDGE_VERSION = 2;
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 36521;
 
@@ -7,7 +7,9 @@ export interface BridgeConnectionInfo {
   host: string;
   port: number;
   token: string;
+  registrationToken: string;
   workspaceFolders: string[];
+  workspaceFolderUris: string[];
   createdAt: string;
 }
 

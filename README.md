@@ -1,4 +1,6 @@
-# VS Code LSP MCP Bridge
+# GA - VS Code LSP MCP Bridge
+
+Made by **Georgiana Alba (GA)**.
 
 Expose VS Code language intelligence as a local MCP server for AI coding tools.
 
@@ -94,7 +96,9 @@ The bridge is local-first and conservative by default:
 
 - Binds to `127.0.0.1` by default.
 - Uses a random bearer token stored in VS Code SecretStorage.
-- Writes connection info to `~/.vscode-lsp-mcp-bridge/connection.json`.
+- Uses a separate gateway-registration credential that is never included in MCP client configuration.
+- Writes connection info to a user-only `~/.vscode-lsp-mcp-bridge/connection.json`.
+- Restricts file-based tool inputs and edits to the open workspace folders.
 - Refuses to start in untrusted workspaces.
 - Exposes read-only tools by default.
 - Keeps write tools disabled unless `vscodeLspMcpBridge.enableWriteTools` is enabled.
@@ -108,7 +112,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 | Setting | Default | Description |
 | --- | --- | --- |
 | `vscodeLspMcpBridge.autoStart` | `true` | Start the local bridge server when VS Code finishes startup. |
-| `vscodeLspMcpBridge.host` | `127.0.0.1` | Host for the local bridge server. Keep this on localhost. |
+| `vscodeLspMcpBridge.host` | `127.0.0.1` | Local bridge host. Only `127.0.0.1` is accepted. |
 | `vscodeLspMcpBridge.port` | `36521` | Stable local gateway port for external MCP clients. VS Code/GitHub Copilot auto-registration uses the current window endpoint. |
 | `vscodeLspMcpBridge.connectionFile` | empty | Optional path for the connection file. Empty uses `~/.vscode-lsp-mcp-bridge/connection.json`. |
 | `vscodeLspMcpBridge.enableWriteTools` | `false` | Enable MCP tools that can apply workspace edits. Each write still requires VS Code approval. |

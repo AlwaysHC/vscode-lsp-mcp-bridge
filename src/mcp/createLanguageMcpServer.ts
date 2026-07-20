@@ -1,15 +1,19 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { brandAttribution } from "../branding.js";
 import { runLanguageTool } from "../languageTools.js";
 import { toolDefinitions } from "./toolDefinitions.js";
 
-export function createLanguageMcpServer(allowWrites: () => boolean): McpServer {
+const maxToolResultBytes = 16_777_216;
+
+export function createLanguageMcpServer(allowWrites: () => boolean, version: string): McpServer {
   const server = new McpServer(
     {
       name: "vscode-lsp-mcp-bridge",
-      version: "0.2.3"
+      version
     },
     {
       instructions: [
+        brandAttribution,
         "These tools are the primary semantic-navigation interface for the active VS Code workspace.",
         "If you are unsure which semantic tool maps to a user request, call semantic_navigation_guide before searching files.",
         "For named-symbol questions, prefer the task-shaped tools: find_callers_for_symbol for who calls X/incoming calls/callers; find_callees_for_symbol for what X calls/outgoing calls/callees; find_references_for_symbol for usages; find_definition_for_symbol for definitions.",
@@ -40,12 +44,16 @@ export function createLanguageMcpServer(allowWrites: () => boolean): McpServer {
         const result = await runLanguageTool(definition.name, input as Record<string, unknown>, {
           allowWrites: allowWrites()
         });
+        const text = JSON.stringify(result ?? null, null, 2);
+        if (Buffer.byteLength(text) > maxToolResultBytes) {
+          throw new Error("Language tool result exceeded the bridge output limit.");
+        }
 
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result, null, 2)
+              text
             }
           ]
         };

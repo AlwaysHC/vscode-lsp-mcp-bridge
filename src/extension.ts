@@ -1,7 +1,7 @@
-import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { brand, brandAttribution } from "./branding.js";
 import { BridgeHttpServer } from "./bridgeHttpServer.js";
 import { getBridgeConfiguration, getWriteToolsEnabled } from "./configuration.js";
 import { showStatusNotification } from "./notifications.js";
@@ -10,9 +10,9 @@ let bridge: BridgeHttpServer | undefined;
 let updateStatusBarQuickAccessTooltip: (() => void) | undefined;
 
 const mcpServerDefinitionProviderId = "vscode-lsp-mcp-bridge.provider";
-const copyMcpConfigAction = "Copy MCP Config";
-const enableWriteToolsAction = "Enable Write Tools";
-const disableWriteToolsAction = "Disable Write Tools";
+const copyMcpConfigAction = brand("Copy MCP Config");
+const enableWriteToolsAction = brand("Enable Write Tools");
+const disableWriteToolsAction = brand("Disable Write Tools");
 
 type ClientConfigId = "codex" | "vscode-copilot" | "claude-code" | "generic";
 
@@ -22,7 +22,7 @@ interface ClientConfigOption extends vscode.QuickPickItem {
 
 interface ClientConfigFileOption extends vscode.QuickPickItem {
   snippetClientId: ClientConfigId;
-  getPath: () => string | undefined;
+  getUri: () => vscode.Uri | undefined;
   initialContent: string;
 }
 
@@ -35,133 +35,133 @@ const emptyVsCodeMcpJson = JSON.stringify({ servers: {} }, null, 2) + "\n";
 
 const bridgeQuickAccessOptions: BridgeQuickAccessOption[] = [
   {
-    label: "$(play) Start Server",
-    description: "Start the local LSP MCP bridge server.",
+    label: "$(play) GA - Start Server",
+    description: brand("Start the local LSP MCP bridge server."),
     command: "vscode-lsp-mcp-bridge.start"
   },
   {
-    label: "$(debug-stop) Stop Server",
-    description: "Stop the local LSP MCP bridge server.",
+    label: "$(debug-stop) GA - Stop Server",
+    description: brand("Stop the local LSP MCP bridge server."),
     command: "vscode-lsp-mcp-bridge.stop"
   },
   {
-    label: "$(info) Show Status",
-    description: "Show LSP MCP bridge endpoint, version, and workspace details.",
+    label: "$(info) GA - Show Status",
+    description: brand("Show LSP MCP bridge endpoint, version, and workspace details."),
     command: "vscode-lsp-mcp-bridge.showStatus"
   },
   {
-    label: "$(workspace-trusted) Route Gateway To This Workspace",
-    description: "Make this workspace the target for new LSP MCP external-client sessions.",
+    label: "$(workspace-trusted) GA - Route Gateway To This Workspace",
+    description: brand("Make this workspace the target for new LSP MCP external-client sessions."),
     command: "vscode-lsp-mcp-bridge.useWorkspace"
   },
   {
-    label: "$(unlock) Enable Write Tools",
-    description: "Enable LSP MCP Bridge write tools from the extension.",
+    label: "$(unlock) GA - Enable Write Tools",
+    description: brand("Enable LSP MCP Bridge write tools from the extension."),
     command: "vscode-lsp-mcp-bridge.enableWriteTools"
   },
   {
-    label: "$(lock) Disable Write Tools",
-    description: "Disable LSP MCP Bridge write tools from the extension.",
+    label: "$(lock) GA - Disable Write Tools",
+    description: brand("Disable LSP MCP Bridge write tools from the extension."),
     command: "vscode-lsp-mcp-bridge.disableWriteTools"
   },
   {
-    label: "$(copy) Copy MCP Client Config",
-    description: "Copy a ready-to-use LSP MCP bridge config snippet for an MCP client.",
+    label: "$(copy) GA - Copy MCP Client Config",
+    description: brand("Copy a ready-to-use LSP MCP bridge config snippet for an MCP client."),
     command: "vscode-lsp-mcp-bridge.copyClientConfig"
   },
   {
-    label: "$(go-to-file) Open MCP Client Config File",
-    description: "Open a common LSP MCP client config file and copy the matching snippet.",
+    label: "$(go-to-file) GA - Open MCP Client Config File",
+    description: brand("Open a common LSP MCP client config file and copy the matching snippet."),
     command: "vscode-lsp-mcp-bridge.openClientConfig"
   }
 ];
 
 const clientConfigOptions: ClientConfigOption[] = [
   {
-    label: "Codex",
+    label: brand("Codex"),
     id: "codex",
-    detail: "TOML config for Codex MCP servers."
+    detail: brand("TOML config for Codex MCP servers.")
   },
   {
-    label: "VS Code / GitHub Copilot",
+    label: brand("VS Code / GitHub Copilot"),
     id: "vscode-copilot",
-    detail: "Optional fallback JSON for VS Code user or workspace mcp.json."
+    detail: brand("Optional fallback JSON for VS Code user or workspace mcp.json.")
   },
   {
-    label: "Claude Code",
+    label: brand("Claude Code"),
     id: "claude-code",
-    detail: "CLI command using HTTP transport and Authorization header."
+    detail: brand("CLI command using HTTP transport and Authorization header.")
   },
   {
-    label: "Generic HTTP MCP Client",
+    label: brand("Generic HTTP MCP Client"),
     id: "generic",
-    detail: "JSON shape for MCP clients that support Streamable HTTP servers."
+    detail: brand("JSON shape for MCP clients that support Streamable HTTP servers.")
   }
 ];
 
 const clientConfigFileOptions: ClientConfigFileOption[] = [
   {
-    label: "Codex global config",
+    label: brand("Codex global config"),
     detail: "~/.codex/config.toml",
-    description: "Paste the copied LSP MCP TOML block into this file.",
+    description: brand("Paste the copied LSP MCP TOML block into this file."),
     snippetClientId: "codex",
-    getPath: () => homePath(".codex", "config.toml"),
+    getUri: () => homeUri(".codex", "config.toml"),
     initialContent: ""
   },
   {
-    label: "VS Code workspace MCP config",
+    label: brand("VS Code workspace MCP config"),
     detail: "<workspace>/.vscode/mcp.json",
-    description: "Optional workspace-level LSP MCP fallback config for VS Code and GitHub Copilot.",
+    description: brand("Optional workspace-level LSP MCP fallback config for VS Code and GitHub Copilot."),
     snippetClientId: "vscode-copilot",
-    getPath: () => workspacePath(".vscode", "mcp.json"),
+    getUri: () => workspaceUri(".vscode", "mcp.json"),
     initialContent: emptyVsCodeMcpJson
   },
   {
-    label: "Claude Code project config",
+    label: brand("Claude Code project config"),
     detail: "<workspace>/.mcp.json",
-    description: "Shared project LSP MCP config. For local config, prefer the copied claude mcp add command.",
+    description: brand("Shared project LSP MCP config. For local config, prefer the copied claude mcp add command."),
     snippetClientId: "generic",
-    getPath: () => workspacePath(".mcp.json"),
+    getUri: () => workspaceUri(".mcp.json"),
     initialContent: emptyMcpServersJson
   },
   {
-    label: "Cursor user config",
+    label: brand("Cursor user config"),
     detail: "~/.cursor/mcp.json",
-    description: "User-wide LSP MCP config for Cursor.",
+    description: brand("User-wide LSP MCP config for Cursor."),
     snippetClientId: "generic",
-    getPath: () => homePath(".cursor", "mcp.json"),
+    getUri: () => homeUri(".cursor", "mcp.json"),
     initialContent: emptyMcpServersJson
   },
   {
-    label: "Cursor workspace config",
+    label: brand("Cursor workspace config"),
     detail: "<workspace>/.cursor/mcp.json",
-    description: "Workspace-level LSP MCP config for Cursor.",
+    description: brand("Workspace-level LSP MCP config for Cursor."),
     snippetClientId: "generic",
-    getPath: () => workspacePath(".cursor", "mcp.json"),
+    getUri: () => workspaceUri(".cursor", "mcp.json"),
     initialContent: emptyMcpServersJson
   },
   {
-    label: "Windsurf user config",
+    label: brand("Windsurf user config"),
     detail: "~/.codeium/windsurf/mcp_config.json",
-    description: "User-wide LSP MCP config for Windsurf/Cascade.",
+    description: brand("User-wide LSP MCP config for Windsurf/Cascade."),
     snippetClientId: "generic",
-    getPath: () => homePath(".codeium", "windsurf", "mcp_config.json"),
+    getUri: () => homeUri(".codeium", "windsurf", "mcp_config.json"),
     initialContent: emptyMcpServersJson
   },
   {
-    label: "Cline user config",
+    label: brand("Cline user config"),
     detail: "~/.cline/mcp.json",
-    description: "CLI-style LSP MCP config for Cline. The VS Code extension also has its own MCP Servers view.",
+    description: brand("CLI-style LSP MCP config for Cline. The VS Code extension also has its own MCP Servers view."),
     snippetClientId: "generic",
-    getPath: () => homePath(".cline", "mcp.json"),
+    getUri: () => homeUri(".cline", "mcp.json"),
     initialContent: emptyMcpServersJson
   },
   {
-    label: "Roo Code workspace config",
+    label: brand("Roo Code workspace config"),
     detail: "<workspace>/.roo/mcp.json",
-    description: "Workspace-level LSP MCP config for Roo Code.",
+    description: brand("Workspace-level LSP MCP config for Roo Code."),
     snippetClientId: "generic",
-    getPath: () => workspacePath(".roo", "mcp.json"),
+    getUri: () => workspaceUri(".roo", "mcp.json"),
     initialContent: emptyMcpServersJson
   }
 ];
@@ -174,8 +174,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.openQuickAccess", async () => {
       const selected = await vscode.window.showQuickPick(bridgeQuickAccessOptions, {
-        title: "LSP MCP Bridge",
-        placeHolder: "Choose a bridge action"
+        title: brand("LSP MCP Bridge"),
+        placeHolder: brand("Choose a bridge action")
       });
       if (!selected) {
         return;
@@ -194,7 +194,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       showStatusNotification("VS Code LSP MCP Bridge stopped.");
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.showStatus", () => {
-      vscode.window.showInformationMessage(bridge?.status ?? "VS Code LSP MCP Bridge is not initialized.", {
+      vscode.window.showInformationMessage(brand(bridge?.status ?? "VS Code LSP MCP Bridge is not initialized."), {
         modal: true
       });
     }),
@@ -216,10 +216,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.enableWriteTools", async () => {
       const choice = await vscode.window.showInformationMessage(
-        "Enable LSP MCP Bridge write tools?",
+        brand("Enable LSP MCP Bridge write tools?"),
         {
           modal: true,
-          detail: "This updates the global VS Code extension setting. Each write-capable tool call still requires a VS Code approval before edits are applied."
+          detail: brand(`${brandAttribution} This updates the global VS Code extension setting. Each write-capable tool call still requires a VS Code approval before edits are applied.`)
         },
         enableWriteToolsAction
       );
@@ -241,8 +241,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       const selected = await vscode.window.showQuickPick(clientConfigOptions, {
-        title: "Copy MCP Client Config",
-        placeHolder: "Choose the AI coding tool or MCP client you want to configure"
+        title: brand("Copy MCP Client Config"),
+        placeHolder: brand("Choose the AI coding tool or MCP client you want to configure")
       });
       if (!selected) {
         return;
@@ -250,7 +250,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const snippet = bridge.getClientConfigSnippet(selected.id);
       const choice = await vscode.window.showInformationMessage(
-        `Copy the ${selected.label} MCP config to the clipboard?`,
+        brand(`Copy the ${selected.label.replace(/^GA - /, "")} MCP config to the clipboard?`),
         { modal: true },
         copyMcpConfigAction
       );
@@ -270,20 +270,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       const selected = await vscode.window.showQuickPick(clientConfigFileOptions, {
-        title: "Open MCP Client Config File",
-        placeHolder: "Choose the config file you want to update"
+        title: brand("Open MCP Client Config File"),
+        placeHolder: brand("Choose the config file you want to update")
       });
       if (!selected) {
         return;
       }
 
-      const filePath = selected.getPath();
-      if (!filePath) {
+      const fileUri = selected.getUri();
+      if (!fileUri) {
         showStatusNotification("Open a workspace before selecting a workspace-level MCP config file.");
         return;
       }
 
-      const opened = await openOrCreateFile(filePath, selected.initialContent, selected.label);
+      const opened = await openOrCreateFile(fileUri, selected.initialContent, selected.label);
       if (!opened) {
         return;
       }
@@ -321,11 +321,20 @@ function registerMcpServerDefinitionProvider(
   context.subscriptions.push(
     definitionsChanged,
     vscode.workspace.onDidChangeConfiguration(event => {
-      if (
+      const restartRequired =
         event.affectsConfiguration("vscodeLspMcpBridge.host") ||
-        event.affectsConfiguration("vscodeLspMcpBridge.port")
-      ) {
-        definitionsChanged.fire();
+        event.affectsConfiguration("vscodeLspMcpBridge.port") ||
+        event.affectsConfiguration("vscodeLspMcpBridge.connectionFile");
+      if (restartRequired) {
+        void bridgeServer.restart().then(
+          () => {
+            definitionsChanged.fire();
+            refreshStatusBarQuickAccessTooltip();
+          },
+          error => {
+            showStatusNotification(`VS Code LSP MCP Bridge could not restart: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        );
       }
     }),
     vscode.lm.registerMcpServerDefinitionProvider(mcpServerDefinitionProviderId, {
@@ -341,8 +350,8 @@ function registerMcpServerDefinitionProvider(
 
 function registerStatusBarQuickAccess(context: vscode.ExtensionContext): void {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  item.name = "LSP MCP Bridge";
-  item.text = "LSP MCP";
+  item.name = brand("LSP MCP Bridge");
+  item.text = "GA - LSP MCP";
   item.command = "vscode-lsp-mcp-bridge.openQuickAccess";
   item.show();
 
@@ -365,6 +374,9 @@ function registerStatusBarQuickAccess(context: vscode.ExtensionContext): void {
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       refreshStatusBarQuickAccessTooltip();
+      void bridge?.refreshWorkspaceContext().catch(error => {
+        showStatusNotification(`VS Code LSP MCP Bridge could not refresh workspace routing: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }),
     vscode.window.onDidChangeWindowState(event => {
       if (event.focused) {
@@ -402,15 +414,16 @@ function statusBarQuickAccessTooltip(): string {
   const writeToolsEnabled = getWriteToolsEnabled();
 
   return [
-    "LSP MCP Bridge",
-    `The MCP server is ${connected ? "connected" : "not connected"}.`,
-    `Write tools are ${writeToolsEnabled ? "enabled" : "disabled"}.`,
-    `Active workspace: ${activeWorkspace}.`
+    brand("LSP MCP Bridge"),
+    brandAttribution,
+    brand(`The MCP server is ${connected ? "connected" : "not connected"}.`),
+    brand(`Write tools are ${writeToolsEnabled ? "enabled" : "disabled"}.`),
+    brand(`Active workspace: ${activeWorkspace}.`)
   ].join("\n");
 }
 
-function homePath(...segments: string[]): string {
-  return path.join(os.homedir(), ...segments);
+function homeUri(...segments: string[]): vscode.Uri {
+  return vscode.Uri.file(path.join(os.homedir(), ...segments));
 }
 
 function currentWorkspaceDisplayName(): string {
@@ -418,34 +431,35 @@ function currentWorkspaceDisplayName(): string {
   return vscode.workspace.name ?? (firstFolder ? path.basename(firstFolder) : "No workspace");
 }
 
-function workspacePath(...segments: string[]): string | undefined {
+function workspaceUri(...segments: string[]): vscode.Uri | undefined {
   const folder = vscode.workspace.workspaceFolders?.[0];
-  return folder ? path.join(folder.uri.fsPath, ...segments) : undefined;
+  return folder ? vscode.Uri.joinPath(folder.uri, ...segments) : undefined;
 }
 
-async function openOrCreateFile(filePath: string, initialContent: string, label: string): Promise<boolean> {
+async function openOrCreateFile(fileUri: vscode.Uri, initialContent: string, label: string): Promise<boolean> {
   let exists = true;
   try {
-    await fs.access(filePath);
+    await vscode.workspace.fs.stat(fileUri);
   } catch {
     exists = false;
   }
 
   if (!exists) {
     const choice = await vscode.window.showInformationMessage(
-      `${label} does not exist. Create it now?`,
-      { modal: true, detail: filePath },
-      "Create and Open"
+      brand(`${label.replace(/^GA - /, "")} does not exist. Create it now?`),
+      { modal: true, detail: fileUri.toString(true) },
+      brand("Create and Open")
     );
-    if (choice !== "Create and Open") {
+    if (choice !== brand("Create and Open")) {
       return false;
     }
 
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, initialContent, "utf8");
+    const parent = vscode.Uri.joinPath(fileUri, "..");
+    await vscode.workspace.fs.createDirectory(parent);
+    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(initialContent, "utf8"));
   }
 
-  const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+  const document = await vscode.workspace.openTextDocument(fileUri);
   await vscode.window.showTextDocument(document, { preview: false });
   return true;
 }

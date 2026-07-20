@@ -23,6 +23,8 @@ VS Code/GitHub Copilot auto-registration receives the current window's own endpo
 
 External MCP clients receive the stable gateway endpoint in copied config snippets. The first VS Code window to start the bridge owns the configured gateway port. Later VS Code windows start localhost worker endpoints and register them with that gateway. The gateway routes new external-client MCP sessions to the active workspace, so external client configuration can keep using one stable URL.
 
+Before sending registration credentials, a worker verifies the gateway with a nonce/HMAC challenge using the separate registration secret from the protected connection file.
+
 For manual smoke tests, the bridge also keeps a debug `POST /tool` endpoint that dispatches directly to `runLanguageTool` and returns normalized JSON.
 
 The extension deliberately uses VS Code's generic language feature commands, such as:
@@ -64,16 +66,18 @@ The file contains:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "host": "127.0.0.1",
   "port": 36521,
   "token": "random-token",
+  "registrationToken": "separate-random-token",
   "workspaceFolders": ["..."],
+  "workspaceFolderUris": ["file:///..."],
   "createdAt": "2026-06-14T00:00:00.000Z"
 }
 ```
 
-Clients should treat this file as sensitive because it contains the bearer token for the local bridge.
+Clients should treat this file as sensitive because it contains the bearer token and the separate worker-registration credential for the local bridge. MCP client snippets include only the bearer token.
 
 ## Limitations
 

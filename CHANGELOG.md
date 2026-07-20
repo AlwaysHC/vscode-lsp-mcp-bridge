@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-07-20
+
+- Separates MCP client authorization from gateway worker registration and verifies gateways with a nonce/HMAC challenge.
+- Restricts bridge listeners to loopback, protects connection-file permissions, and bounds request, response, workspace, and session resources.
+- Confines file tools and applied edits to open workspace folders while preserving multi-root and remote-workspace URIs.
+- Excludes unpreviewable resource operations from workspace edits and avoids executing code-action commands after failed edits.
+- Fixes empty MCP results, code-action discrimination, live configuration refresh, and protocol/version consistency.
+
 ## 0.2.8
 
 - Adds configurable timed status bar notifications for passive extension feedback.

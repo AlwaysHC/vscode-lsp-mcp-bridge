@@ -36,13 +36,13 @@ npm run package
 Expected output:
 
 ```text
-vscode-lsp-mcp-bridge-0.2.0.vsix
+vscode-lsp-mcp-bridge-0.3.0.vsix
 ```
 
 ## Local VSIX Test
 
 ```powershell
-code --install-extension .\vscode-lsp-mcp-bridge-0.2.0.vsix
+code --install-extension .\vscode-lsp-mcp-bridge-0.3.0.vsix
 ```
 
 Then:

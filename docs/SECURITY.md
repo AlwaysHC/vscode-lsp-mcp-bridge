@@ -6,16 +6,18 @@ This project gives external MCP clients access to language-intelligence data fro
 
 - The bridge binds to `127.0.0.1`.
 - A random bearer token is generated once and stored in VS Code SecretStorage.
-- Additional VS Code windows register behind the first local gateway with the same bearer-token authorization.
+- A separate secret authenticates worker registration; MCP client tokens cannot call gateway administration endpoints.
+- Additional VS Code windows verify the gateway with a nonce/HMAC challenge, then register using that separate credential.
 - The bridge refuses to start in untrusted workspaces.
 - Read-only language tools are enabled.
 - Tools that apply edits are disabled by default.
 - Applying edits also requires a per-operation VS Code modal approval.
 - No shell execution tool exists.
+- File inputs and text edits are confined to open workspace folders.
 
 ## Connection File
 
-The connection file includes the local gateway port and bearer token. Keep it inside the current user's profile directory.
+The connection file includes the local gateway port, bearer token, and worker-registration credential. The bridge creates its directory and file with user-only permissions where the operating system supports POSIX modes. Keep it inside the current user's profile directory and treat it as sensitive.
 
 Default path:
 
