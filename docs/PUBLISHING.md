@@ -20,15 +20,17 @@ Before publishing, confirm that the publisher identifier created at the Visual S
 2. Confirm `package.json.repository`, `homepage`, and `bugs.url` point to the public repository.
 3. Confirm `resources/icon.png` exists and is a PNG of at least 128x128 pixels.
 4. Confirm README states that the extension starts a localhost MCP server.
-5. Confirm write tools remain disabled by default and require a VS Code approval prompt.
+5. Confirm mutation tools remain disabled by default, require VS Code approval, and provider `WorkspaceEdit` results remain preview-only.
 6. Confirm dependencies are bundled into `dist/extension.js`.
-7. Run a clean compile and VSIX package build.
-8. Install the VSIX into a fresh Extension Development Host or another VS Code profile.
+7. Run `npm test`, `npm audit`, a clean compile, and a VSIX package build.
+8. Inspect the VSIX file list and install it into a fresh Extension Development Host or another VS Code profile.
 
 ## Build And Package
 
 ```powershell
 npm install
+npm test
+npm audit
 npm run compile
 npm run package
 ```
@@ -36,13 +38,13 @@ npm run package
 Expected output:
 
 ```text
-vscode-lsp-mcp-bridge-0.3.0.vsix
+vscode-lsp-mcp-bridge-0.4.0.vsix
 ```
 
 ## Local VSIX Test
 
 ```powershell
-code --install-extension .\vscode-lsp-mcp-bridge-0.3.0.vsix
+code --install-extension .\vscode-lsp-mcp-bridge-0.4.0.vsix
 ```
 
 Then:
@@ -92,6 +94,7 @@ After installation, the smooth path is:
 
 - Increment `package.json.version` for every publish.
 - Update `CHANGELOG.md`.
+- Run `npm test` and confirm `npm audit` reports zero vulnerabilities.
 - Run `npm run compile`.
 - Run `npm run package`.
 - Install and smoke-test the generated VSIX.

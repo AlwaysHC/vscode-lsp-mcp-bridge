@@ -1,4 +1,5 @@
-export const BRIDGE_VERSION = 2;
+export const BRIDGE_VERSION = 3;
+export const LEGACY_BRIDGE_VERSION = 2;
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 36521;
 

@@ -7,10 +7,23 @@ VS Code extension
   src/extension.ts
   src/bridgeHttpServer.ts
   src/languageTools.ts
+  src/languageToolCore.ts
+  src/languageTools/
+    runtime.ts
+    diagnostics.ts
+    symbols.ts
+    symbolContext.ts
+    hierarchies.ts
+    documentFeatures.ts
+    completions.ts
+    virtualDocuments.ts
+    writeSafety.ts
+    writeTools.ts
   src/mcp/createLanguageMcpServer.ts
   src/mcp/toolDefinitions.ts
 
 Shared protocol
+  src/shared/bridgeAuth.ts
   src/shared/protocol.ts
   src/shared/paths.ts
 ```
@@ -21,11 +34,13 @@ The extension starts a localhost HTTP server. Each running bridge exposes a Stre
 
 VS Code/GitHub Copilot auto-registration receives the current window's own endpoint. This means each VS Code window can use its own language context automatically without asking the user to select a workspace.
 
-External MCP clients receive the stable gateway endpoint in copied config snippets. The first VS Code window to start the bridge owns the configured gateway port. Later VS Code windows start localhost worker endpoints and register them with that gateway. The gateway routes new external-client MCP sessions to the active workspace, so external client configuration can keep using one stable URL.
+External MCP clients receive the stable gateway endpoint in copied config snippets. One VS Code window owns the configured gateway port. Later windows discover and verify it, start localhost worker endpoints, and register with that gateway. The gateway routes each new external-client MCP session to the selected workspace and pins that session to its initializing window. Unique explicit file/URI hints can cross-route an individual tool call; ambiguous hints never follow later active-window changes.
 
-Before sending registration credentials, a worker verifies the gateway with a nonce/HMAC challenge using the separate registration secret from the protected connection file.
+Workers verify initial gateway discovery with a nonce/HMAC challenge. Every later gateway-administration request is independently HMAC signed over its method, path, exact body digest, routing headers, timestamp, and random nonce; the registration secret itself is never placed in an HTTP authorization header. The gateway returns a proof bound to the request nonce and actual HTTP status, and bounded replay caches reject duplicate or stale messages.
 
-For manual smoke tests, the bridge also keeps a debug `POST /tool` endpoint that dispatches directly to `runLanguageTool` and returns normalized JSON.
+Registration payloads contain no bearer credential. Instead, both sides derive an isolated proxy key from the registration secret and workspace ID. Gateway-to-worker MCP and `/tool` traffic is signed with that key, and worker responses are authenticated before the gateway creates a session route or forwards data. Only the gateway writes the connection file. Verified workers retain the shared credentials in profile SecretStorage, and bounded failover preserves them when a worker becomes the gateway.
+
+For manual smoke tests, the bridge also keeps a `POST /tool` endpoint that dispatches to `runLanguageTool`. It uses the same strict schemas, authorization, routing, normalization, and output cap as MCP calls.
 
 The extension deliberately uses VS Code's generic language feature commands, such as:
 
@@ -37,6 +52,8 @@ The extension deliberately uses VS Code's generic language feature commands, suc
 - `vscode.executeDocumentRenameProvider`
 
 This means it can work with any language provider that implements those VS Code APIs, not only C#.
+
+`src/languageTools.ts` is intentionally only the dispatcher. Provider invocation, normalization, hierarchy traversal, diagnostics, opaque grants, and write validation live in focused modules so their limits and security boundaries can be reviewed independently.
 
 ## MCP Server
 
@@ -66,7 +83,7 @@ The file contains:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "host": "127.0.0.1",
   "port": 36521,
   "token": "random-token",
@@ -78,6 +95,8 @@ The file contains:
 ```
 
 Clients should treat this file as sensitive because it contains the bearer token and the separate worker-registration credential for the local bridge. MCP client snippets include only the bearer token.
+
+Protocol 3 replaces bearer-authenticated internal registration and proxy calls with signed messages. A protocol-3 process preserves credentials from a legacy protocol-2 file when it can safely take ownership of a free gateway port, but it refuses mixed-version registration while an older gateway is still running. Reload or close older extension windows together during this upgrade.
 
 ## Limitations
 

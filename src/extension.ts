@@ -12,7 +12,6 @@ let updateStatusBarQuickAccessTooltip: (() => void) | undefined;
 const mcpServerDefinitionProviderId = "vscode-lsp-mcp-bridge.provider";
 const copyMcpConfigAction = brand("Copy MCP Config");
 const enableWriteToolsAction = brand("Enable Write Tools");
-const disableWriteToolsAction = brand("Disable Write Tools");
 
 type ClientConfigId = "codex" | "vscode-copilot" | "claude-code" | "generic";
 
@@ -340,7 +339,7 @@ function registerMcpServerDefinitionProvider(
     vscode.lm.registerMcpServerDefinitionProvider(mcpServerDefinitionProviderId, {
       onDidChangeMcpServerDefinitions: definitionsChanged.event,
       provideMcpServerDefinitions: () => [bridgeServer.getVsCodeMcpServerDefinition()],
-      resolveMcpServerDefinition: async server => {
+      resolveMcpServerDefinition: async _server => {
         await bridgeServer.start();
         return bridgeServer.getVsCodeMcpServerDefinition();
       }

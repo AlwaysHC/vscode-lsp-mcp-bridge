@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 - 2026-07-20
+
+- Splits the language-tool dispatcher into focused diagnostics, symbols, hierarchy, document-feature, completion, virtual-document, and write-safety modules.
+- Adds filtered/settled diagnostics, combined symbol context, bounded recursive call/type graphs, richer completion snapshots, selection ranges, and capability reporting.
+- Adds opaque, expiring references for provider-backed virtual documents with scheme restrictions, routing anchors, size limits, timeouts, and first-use approval.
+- Pins MCP sessions to their initializing VS Code window, makes cross-window hints unique-only, handles URI anchors, bounds route capacity, and preserves gateway credentials during multi-profile failover.
+- Upgrades multi-window transport to protocol 3 with replay-protected, body-bound HMAC requests, status-bound response proofs, isolated per-worker proxy keys, and no bearer secrets in registration or internal proxy traffic.
+- Applies only validated formatting and plain-text completion edits with canonical workspace containment, overlap/insertion/replacement limits, document-instance/version checks, and modal approval.
+- Keeps generic provider `WorkspaceEdit` results preview-only because stable VS Code APIs cannot enumerate hidden file, notebook, or snippet operations safely; provider commands require a separate explicit approval.
+- Bounds provider calls and normalized output, validates direct `/tool` inputs with the same strict schemas as MCP, fixes named-symbol false matches, and removes all known npm audit findings.
+- Raises the minimum VS Code version to 1.102, the first declared baseline used by the extension's MCP server-definition API.
+
 ## 0.3.0 - 2026-07-20
 
 - Separates MCP client authorization from gateway worker registration and verifies gateways with a nonce/HMAC challenge.

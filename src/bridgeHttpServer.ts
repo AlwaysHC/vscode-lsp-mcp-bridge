@@ -10,7 +10,17 @@ import { brand, brandAttribution } from "./branding.js";
 import { getBridgeConfiguration, getWriteToolsEnabled } from "./configuration.js";
 import { runLanguageTool } from "./languageTools.js";
 import { createLanguageMcpServer } from "./mcp/createLanguageMcpServer.js";
+import { validateLanguageToolArgs } from "./mcp/toolDefinitions.js";
 import { showStatusNotification } from "./notifications.js";
+import {
+  bridgeAuthHeaders,
+  createBridgeResponseProof,
+  deriveWorkerProxyKey,
+  hashBridgeBody,
+  signBridgeRequest,
+  verifyBridgeRequest,
+  verifyBridgeResponseProof
+} from "./shared/bridgeAuth.js";
 import { defaultConnectionFilePath } from "./shared/paths.js";
 import {
   BRIDGE_VERSION,
@@ -18,7 +28,8 @@ import {
   BridgeToolRequest,
   BridgeToolResponse,
   DEFAULT_HOST,
-  DEFAULT_PORT
+  DEFAULT_PORT,
+  LEGACY_BRIDGE_VERSION
 } from "./shared/protocol.js";
 
 type BridgeServerRole = "gateway" | "worker";
@@ -28,7 +39,6 @@ interface WorkspaceRegistration {
   name: string;
   host: string;
   port: number;
-  token: string;
   workspaceFolders: string[];
   workspaceFolderUris: string[];
   startedAt: string;
@@ -38,12 +48,18 @@ interface WorkspaceRegistration {
 interface RegisteredWorkspace extends WorkspaceRegistration {
   isLocal: boolean;
   lastSeenAt: string;
+  proxyKey: string;
 }
 
 interface GatewayEndpoint {
   host: string;
   port: number;
   registrationToken: string;
+}
+
+interface McpSessionRoute {
+  workspaceId: string;
+  lastSeenAt: number;
 }
 
 export interface BridgeStatusBarInfo {
@@ -65,6 +81,9 @@ interface McpToolCallParams {
 
 const registrationRefreshMs = 30_000;
 const registrationStaleMs = 90_000;
+const maxRegistrationFailures = 3;
+const gatewayConnectionWaitMs = 3_000;
+const recoveryRetryMs = 10_000;
 const mcpSessionIdleMs = 30 * 60_000;
 const maxMcpSessions = 64;
 const maxMcpSessionRoutes = 256;
@@ -72,7 +91,11 @@ const maxRequestBodyBytes = 1_048_576;
 const maxBufferedResponseBytes = 16_777_216;
 const maxRegisteredWorkspaces = 32;
 const maxWorkspaceFolders = 100;
+const signedRequestReplayWindowMs = 60_000;
+const maxSignedRequestNonces = 4_096;
+const internalBridgeHeaderNames = new Set<string>(Object.values(bridgeAuthHeaders));
 const symbolRouteMaxEntriesPerFolder = 50_000;
+const symbolRouteTimeoutMs = 3_000;
 const ignoredRouteDirectories = new Set([
   ".git",
   ".vs",
@@ -86,6 +109,7 @@ const ignoredRouteDirectories = new Set([
 ]);
 
 class PayloadTooLargeError extends Error {}
+class InvalidBridgeRequestError extends Error {}
 
 export class BridgeHttpServer {
   private server: http.Server | undefined;
@@ -97,12 +121,21 @@ export class BridgeHttpServer {
   private gatewayEndpoint: GatewayEndpoint | undefined;
   private activeWorkspaceId: string | undefined;
   private registrationTimer: ReturnType<typeof setInterval> | undefined;
+  private recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+  private registrationFailureCount = 0;
+  private recoveryGatewayPort: number | undefined;
   private isPromoting = false;
-  private gatewayIdentityVerified = false;
   private pendingMcpSessions = 0;
+  private pendingGatewayMcpInitializations = 0;
   private startPromise: Promise<void> | undefined;
+  private stopPromise: Promise<void> | undefined;
+  private promotionPromise: Promise<void> | undefined;
+  private desiredRunning = false;
+  private lifecycleGeneration = 0;
   private registeredWorkspaces = new Map<string, RegisteredWorkspace>();
-  private mcpSessionRoutes = new Map<string, string>();
+  private mcpSessionRoutes = new Map<string, McpSessionRoute>();
+  private signedBodyHashes = new WeakMap<http.IncomingMessage, string>();
+  private signedRequestNonces = new Map<string, number>();
   private mcpSessions = new Map<
     string,
     {
@@ -176,6 +209,18 @@ export class BridgeHttpServer {
   }
 
   async start(): Promise<void> {
+    this.desiredRunning = true;
+    await this.stopPromise?.catch(() => undefined);
+    if (!this.desiredRunning) {
+      return;
+    }
+    await this.startForGeneration(this.lifecycleGeneration);
+  }
+
+  private async startForGeneration(generation: number): Promise<void> {
+    if (!this.desiredRunning || generation !== this.lifecycleGeneration) {
+      return;
+    }
     if (this.isRunning) {
       return;
     }
@@ -207,15 +252,16 @@ export class BridgeHttpServer {
     const config = getBridgeConfiguration();
     const host = config.get<string>("host", DEFAULT_HOST);
     this.ensureLoopbackHost(host);
-    const requestedPort = config.get<number>("port", DEFAULT_PORT);
-    if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65_535) {
-      throw new Error("Bridge port must be an integer from 0 through 65535.");
+    const requestedPort = this.recoveryGatewayPort ?? config.get<number>("port", DEFAULT_PORT);
+    if (!Number.isInteger(requestedPort) || requestedPort < 1_024 || requestedPort > 65_535) {
+      throw new Error("Bridge port must be an integer from 1024 through 65535.");
     }
     const configuredConnectionFile = config.get<string>("connectionFile", "").trim();
-    const token = await this.getOrCreateToken();
-    const registrationToken = await this.getOrCreateRegistrationToken();
-
     this.connectionFile = path.resolve(configuredConnectionFile || defaultConnectionFilePath());
+    const savedConnection = await this.readConnectionFile(true);
+    const publishedConnection = savedConnection?.version === BRIDGE_VERSION ? savedConnection : undefined;
+    const token = savedConnection?.token ?? await this.getOrCreateToken();
+    const registrationToken = savedConnection?.registrationToken ?? await this.getOrCreateRegistrationToken();
     this.workspaceId = this.createWorkspaceId();
     this.server = http.createServer((request, response) => {
       void this.handleRequest(request, response);
@@ -225,6 +271,11 @@ export class BridgeHttpServer {
     this.server.maxHeadersCount = 100;
 
     try {
+      if (publishedConnection && await this.tryUsePublishedGateway(publishedConnection)) {
+        await this.startWorkerBehindGateway(publishedConnection.host, publishedConnection.port, publishedConnection);
+        return;
+      }
+
       await this.listen(requestedPort, host);
       const port = this.listeningPort();
       this.role = "gateway";
@@ -235,15 +286,18 @@ export class BridgeHttpServer {
         port,
         token,
         registrationToken,
-        workspaceFolders: vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath) ?? [],
-        workspaceFolderUris: vscode.workspace.workspaceFolders?.map(folder => folder.uri.toString()) ?? [],
+        ...this.currentWorkspaceFolderValues(),
         createdAt: new Date().toISOString()
       };
 
-      this.registerLocalWorkspace(host, port, token);
+      await this.storeGatewayCredentials(token, registrationToken);
+      this.registerLocalWorkspace(host, port, registrationToken);
       await this.writeConnectionFile();
+      this.registrationFailureCount = 0;
+      this.recoveryGatewayPort = undefined;
+      this.clearRecoveryTimer();
     } catch (error) {
-      if (requestedPort === 0 || !this.isAddressInUseError(error)) {
+      if (!this.isAddressInUseError(error)) {
         await this.resetAfterFailedStart();
         throw error;
       }
@@ -253,8 +307,31 @@ export class BridgeHttpServer {
   }
 
   async stop(): Promise<void> {
+    this.desiredRunning = false;
+    this.lifecycleGeneration += 1;
+    if (this.stopPromise) {
+      await this.stopPromise;
+      return;
+    }
+
+    const operation = this.stopCore();
+    this.stopPromise = operation;
+    try {
+      await operation;
+    } finally {
+      if (this.stopPromise === operation) {
+        this.stopPromise = undefined;
+      }
+    }
+  }
+
+  private async stopCore(): Promise<void> {
     await this.startPromise?.catch(() => undefined);
+    await this.promotionPromise?.catch(() => undefined);
     this.stopRegistrationHeartbeat();
+    this.clearRecoveryTimer();
+    this.registrationFailureCount = 0;
+    this.recoveryGatewayPort = undefined;
 
     if (this.role === "worker") {
       await this.unregisterFromGateway().catch(() => undefined);
@@ -268,10 +345,11 @@ export class BridgeHttpServer {
     this.workspaceId = undefined;
     this.actualPort = undefined;
     this.gatewayEndpoint = undefined;
-    this.gatewayIdentityVerified = false;
     this.activeWorkspaceId = undefined;
     this.registeredWorkspaces.clear();
     this.mcpSessionRoutes.clear();
+    this.signedRequestNonces.clear();
+    this.signedBodyHashes = new WeakMap<http.IncomingMessage, string>();
 
     await this.closeMcpSessions();
 
@@ -292,10 +370,14 @@ export class BridgeHttpServer {
     if (!this.connectionInfo) {
       return;
     }
-    this.connectionInfo.workspaceFolders = vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath) ?? [];
-    this.connectionInfo.workspaceFolderUris = vscode.workspace.workspaceFolders?.map(folder => folder.uri.toString()) ?? [];
+    Object.assign(this.connectionInfo, this.currentWorkspaceFolderValues());
     if (this.role === "gateway") {
-      this.registerLocalWorkspace(this.connectionInfo.host, this.actualPort ?? this.connectionInfo.port, this.connectionInfo.token, false);
+      this.registerLocalWorkspace(
+        this.connectionInfo.host,
+        this.actualPort ?? this.connectionInfo.port,
+        this.connectionInfo.registrationToken,
+        false
+      );
       await this.writeConnectionFile();
     } else if (this.role === "worker") {
       await this.refreshGatewayRegistration(false);
@@ -408,7 +490,7 @@ export class BridgeHttpServer {
   private async handleRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     try {
       if (request.method === "GET" && request.url === "/health") {
-        const authorized = this.isAuthorized(request) || this.isGatewayAuthorized(request);
+        const authorized = this.hasBearerToken(request, this.connectionInfo?.token);
         this.writeJson(response, 200, {
           ok: true,
           running: this.isRunning,
@@ -421,6 +503,11 @@ export class BridgeHttpServer {
         return;
       }
 
+      if (!this.desiredRunning || this.stopPromise) {
+        this.writeJson(response, 503, { ok: false, error: "The bridge is stopping." });
+        return;
+      }
+
       const requestPath = request.url?.split("?", 1)[0];
 
       if (request.method === "POST" && requestPath === "/gateway/challenge") {
@@ -429,7 +516,7 @@ export class BridgeHttpServer {
       }
 
       if (requestPath?.startsWith("/gateway/")) {
-        if (!this.isGatewayAuthorized(request)) {
+        if (!this.isGatewayAuthorized(request, response)) {
           this.writeJson(response, 401, { ok: false, error: "Unauthorized" });
           return;
         }
@@ -439,7 +526,7 @@ export class BridgeHttpServer {
       }
 
       if (requestPath === "/mcp") {
-        if (!this.isAuthorized(request)) {
+        if (!this.isAuthorized(request, response)) {
           this.writeMcpError(response, 401, -32001, "Unauthorized");
           return;
         }
@@ -453,15 +540,15 @@ export class BridgeHttpServer {
         return;
       }
 
-      if (!this.isAuthorized(request)) {
+      if (!this.isAuthorized(request, response)) {
         this.writeJson(response, 401, { ok: false, error: "Unauthorized" });
         return;
       }
 
-      const body = await this.readJson<BridgeToolRequest>(request);
+      const body = this.validateBridgeToolRequest(await this.readJson<unknown>(request));
       const hintedWorkspace = await this.workspaceForToolRequest(body);
-      const backend = hintedWorkspace && !hintedWorkspace.isLocal
-        ? hintedWorkspace
+      const backend = hintedWorkspace
+        ? hintedWorkspace.isLocal ? undefined : hintedWorkspace
         : this.activeRemoteWorkspace();
       if (backend) {
         await this.proxyRequestToWorkspace(request, response, backend, body, { mcp: false });
@@ -478,7 +565,10 @@ export class BridgeHttpServer {
         return;
       }
 
-      this.writeJson(response, error instanceof PayloadTooLargeError ? 413 : 500, {
+      const statusCode = error instanceof PayloadTooLargeError
+        ? 413
+        : error instanceof InvalidBridgeRequestError ? 400 : 500;
+      this.writeJson(response, statusCode, {
         ok: false,
         error: error instanceof Error ? error.message : String(error)
       } satisfies BridgeToolResponse);
@@ -493,12 +583,19 @@ export class BridgeHttpServer {
     const sessionId = this.getHeader(request, "mcp-session-id");
 
     if (this.role === "gateway" && sessionId) {
-      const backendId = this.mcpSessionRoutes.get(sessionId);
-      if (backendId) {
+      this.expireIdleMcpSessionRoutes();
+      const route = this.mcpSessionRoutes.get(sessionId);
+      if (route) {
+        route.lastSeenAt = Date.now();
+        const backendId = route.workspaceId;
+        if (backendId === this.workspaceId) {
+          const localSession = this.mcpSessions.get(sessionId);
+          if (localSession) {
+            localSession.lastSeenAt = route.lastSeenAt;
+          }
+        }
         const body = method === "POST" ? await this.readJson<unknown>(request) : undefined;
-        const targetWorkspace = body !== undefined
-          ? await this.workspaceForMcpToolCall(body) ?? this.activeWorkspace()
-          : undefined;
+        const targetWorkspace = body !== undefined ? await this.workspaceForMcpToolCall(body, true) : undefined;
         if (body !== undefined && targetWorkspace && targetWorkspace.id !== backendId) {
           if (await this.tryHandleMcpToolCallInWorkspace(response, body, targetWorkspace)) {
             return;
@@ -506,9 +603,17 @@ export class BridgeHttpServer {
         }
 
         const backend = this.registeredWorkspaces.get(backendId);
-        if (!backend || backend.isLocal) {
+        if (!backend) {
           this.mcpSessionRoutes.delete(sessionId);
           this.writeMcpError(response, 404, -32000, "MCP workspace session is no longer available.");
+          return;
+        }
+
+        if (backend.isLocal) {
+          await this.handleMcpRequest(request, response, body);
+          if (method === "DELETE") {
+            this.mcpSessionRoutes.delete(sessionId);
+          }
           return;
         }
 
@@ -518,14 +623,32 @@ export class BridgeHttpServer {
         }
         return;
       }
+
+      this.writeMcpError(response, 404, -32000, "Unknown or expired MCP session.");
+      return;
     }
 
     if (this.role === "gateway" && method === "POST" && !sessionId) {
       const body = await this.readJson<unknown>(request);
-      const backend = isInitializeRequest(body) ? this.activeRemoteWorkspace() : undefined;
-      if (backend) {
-        await this.proxyRequestToWorkspace(request, response, backend, body, { mcp: true });
-        return;
+      if (isInitializeRequest(body)) {
+        this.expireIdleMcpSessionRoutes();
+        if (this.mcpSessionRoutes.size + this.pendingGatewayMcpInitializations >= maxMcpSessionRoutes) {
+          this.writeMcpError(response, 429, -32000, "Too many active gateway MCP sessions.");
+          return;
+        }
+        this.pendingGatewayMcpInitializations += 1;
+        try {
+          const backend = this.activeRemoteWorkspace();
+          if (backend) {
+            await this.proxyRequestToWorkspace(request, response, backend, body, { mcp: true });
+            return;
+          }
+
+          await this.handleMcpRequest(request, response, body);
+          return;
+        } finally {
+          this.pendingGatewayMcpInitializations -= 1;
+        }
       }
 
       await this.handleMcpRequest(request, response, body);
@@ -556,7 +679,7 @@ export class BridgeHttpServer {
 
         session.lastSeenAt = Date.now();
 
-        const targetWorkspace = await this.workspaceForMcpToolCall(body) ?? this.activeWorkspace();
+        const targetWorkspace = await this.workspaceForMcpToolCall(body, true);
         if (targetWorkspace && targetWorkspace.id !== this.workspaceId && (await this.tryHandleMcpToolCallInWorkspace(response, body, targetWorkspace))) {
           return;
         }
@@ -577,11 +700,20 @@ export class BridgeHttpServer {
 
       this.pendingMcpSessions += 1;
       let initializedSessionId: string | undefined;
+      const sessionGeneration = this.lifecycleGeneration;
       const mcpServer = createLanguageMcpServer(() => this.allowWrites, this.extensionVersion());
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
         enableJsonResponse: true,
         onsessioninitialized: newSessionId => {
+          if (!this.desiredRunning || sessionGeneration !== this.lifecycleGeneration) {
+            throw new Error("The bridge stopped while the MCP session was initializing.");
+          }
+          if (this.role === "gateway" && this.workspaceId) {
+            if (!this.setMcpSessionRoute(newSessionId, this.workspaceId)) {
+              throw new Error("The gateway MCP session limit was reached during initialization.");
+            }
+          }
           initializedSessionId = newSessionId;
           this.mcpSessions.set(newSessionId, { transport, server: mcpServer, lastSeenAt: Date.now() });
         }
@@ -591,6 +723,7 @@ export class BridgeHttpServer {
         const closedSessionId = transport.sessionId ?? initializedSessionId;
         if (closedSessionId) {
           this.mcpSessions.delete(closedSessionId);
+          this.mcpSessionRoutes.delete(closedSessionId);
         }
       };
 
@@ -627,12 +760,100 @@ export class BridgeHttpServer {
     this.writeMcpError(response, 405, -32000, "Method not allowed.");
   }
 
-  private isAuthorized(request: http.IncomingMessage): boolean {
-    return this.hasBearerToken(request, this.connectionInfo?.token);
+  private isAuthorized(request: http.IncomingMessage, response: http.ServerResponse): boolean {
+    if (this.hasBearerToken(request, this.connectionInfo?.token)) {
+      return true;
+    }
+
+    const key = this.role === "worker" && this.connectionInfo?.registrationToken && this.workspaceId
+      ? deriveWorkerProxyKey(this.connectionInfo.registrationToken, this.workspaceId)
+      : undefined;
+    return key ? this.acceptSignedRequest(request, response, key, `worker:${this.workspaceId}`) : false;
   }
 
-  private isGatewayAuthorized(request: http.IncomingMessage): boolean {
-    return this.hasBearerToken(request, this.connectionInfo?.registrationToken);
+  private isGatewayAuthorized(request: http.IncomingMessage, response: http.ServerResponse): boolean {
+    const key = this.role === "gateway" ? this.connectionInfo?.registrationToken : undefined;
+    return key ? this.acceptSignedRequest(request, response, key, "gateway") : false;
+  }
+
+  private acceptSignedRequest(
+    request: http.IncomingMessage,
+    response: http.ServerResponse,
+    key: string,
+    scope: string
+  ): boolean {
+    const now = Date.now();
+    const verification = verifyBridgeRequest(key, {
+      method: request.method ?? "GET",
+      path: request.url ?? "/",
+      sessionId: this.getHeader(request, "mcp-session-id"),
+      protocolVersion: this.getHeader(request, "mcp-protocol-version"),
+      lastEventId: this.getHeader(request, "last-event-id")
+    }, request.headers, now);
+    if (!verification ||
+      ((request.method === "GET" || request.method === "DELETE") && verification.bodyHash !== hashBridgeBody())) {
+      return false;
+    }
+
+    this.expireSignedRequestNonces(now);
+    const scopedNonce = `${scope}:${verification.nonce}`;
+    if (this.signedRequestNonces.has(scopedNonce) || this.signedRequestNonces.size >= maxSignedRequestNonces) {
+      return false;
+    }
+
+    this.signedRequestNonces.set(scopedNonce, now + signedRequestReplayWindowMs);
+    this.signedBodyHashes.set(request, verification.bodyHash);
+    this.installAuthenticatedResponseProof(response, key, verification.nonce);
+    return true;
+  }
+
+  private installAuthenticatedResponseProof(
+    response: http.ServerResponse,
+    key: string,
+    requestNonce: string
+  ): void {
+    let installed = false;
+    const install = (statusCode: number) => {
+      if (!installed && !response.headersSent) {
+        response.setHeader(
+          bridgeAuthHeaders.responseProof,
+          createBridgeResponseProof(key, requestNonce, statusCode)
+        );
+        installed = true;
+      }
+    };
+
+    const originalWriteHead = response.writeHead.bind(response);
+    response.writeHead = ((statusCode: number, ...args: unknown[]) => {
+      install(statusCode);
+      return Reflect.apply(originalWriteHead, response, [statusCode, ...args]) as http.ServerResponse;
+    }) as typeof response.writeHead;
+
+    const originalWrite = response.write.bind(response);
+    response.write = ((chunk: unknown, ...args: unknown[]) => {
+      install(response.statusCode);
+      return Reflect.apply(originalWrite, response, [chunk, ...args]) as boolean;
+    }) as typeof response.write;
+
+    const originalEnd = response.end.bind(response);
+    response.end = ((...args: unknown[]) => {
+      install(response.statusCode);
+      return Reflect.apply(originalEnd, response, args) as http.ServerResponse;
+    }) as typeof response.end;
+
+    const originalFlushHeaders = response.flushHeaders.bind(response);
+    response.flushHeaders = (() => {
+      install(response.statusCode);
+      originalFlushHeaders();
+    }) as typeof response.flushHeaders;
+  }
+
+  private expireSignedRequestNonces(now = Date.now()): void {
+    for (const [nonce, expiresAt] of this.signedRequestNonces) {
+      if (expiresAt <= now) {
+        this.signedRequestNonces.delete(nonce);
+      }
+    }
   }
 
   private hasBearerToken(request: http.IncomingMessage, token: string | undefined): boolean {
@@ -673,7 +894,14 @@ export class BridgeHttpServer {
       chunks.push(buffer);
     }
 
-    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
+    const payload = Buffer.concat(chunks).toString("utf8");
+    const expectedBodyHash = this.signedBodyHashes.get(request);
+    this.signedBodyHashes.delete(request);
+    if (expectedBodyHash !== undefined && hashBridgeBody(payload) !== expectedBodyHash) {
+      throw new InvalidBridgeRequestError("Signed bridge request content did not match its authenticated digest.");
+    }
+
+    return JSON.parse(payload) as T;
   }
 
   private writeJson(response: http.ServerResponse, statusCode: number, value: unknown): void {
@@ -709,8 +937,20 @@ export class BridgeHttpServer {
     }
 
     const directory = path.dirname(this.connectionFile);
+    const directoryInfo = await fs.lstat(directory).catch(error => {
+      if (this.isFileNotFoundError(error)) {
+        return undefined;
+      }
+      throw error;
+    });
+    if (directoryInfo?.isSymbolicLink() || (directoryInfo && !directoryInfo.isDirectory())) {
+      throw new Error("The bridge connection directory must be a regular directory, not a symbolic link.");
+    }
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-    await fs.chmod(directory, 0o700).catch(() => undefined);
+    const defaultDirectory = path.dirname(defaultConnectionFilePath());
+    if (!directoryInfo || this.normalizePathForComparison(directory) === this.normalizePathForComparison(defaultDirectory)) {
+      await fs.chmod(directory, 0o700).catch(() => undefined);
+    }
 
     const existing = await fs.lstat(this.connectionFile).catch(error => {
       if (this.isFileNotFoundError(error)) {
@@ -738,12 +978,24 @@ export class BridgeHttpServer {
     }
   }
 
-  private async startWorkerBehindGateway(host: string, gatewayPort: number): Promise<void> {
+  private async startWorkerBehindGateway(
+    host: string,
+    gatewayPort: number,
+    knownConnection?: BridgeConnectionInfo
+  ): Promise<void> {
     try {
-      const gatewayConnection = await this.readConnectionFile();
+      const gatewayConnection = knownConnection
+        ?? await this.waitForGatewayConnection(host, gatewayPort, gatewayConnectionWaitMs);
       const gatewayToken = gatewayConnection?.token;
       const registrationToken = gatewayConnection?.registrationToken;
-      if (!gatewayToken || !registrationToken) {
+      if (!gatewayToken || !registrationToken || gatewayConnection.host !== host || gatewayConnection.port !== gatewayPort) {
+        const legacyConnection = await this.readConnectionFile(true);
+        if (legacyConnection?.version === LEGACY_BRIDGE_VERSION &&
+          legacyConnection.host === host && legacyConnection.port === gatewayPort) {
+          throw new Error(
+            `Port ${gatewayPort} is owned by an older bridge protocol. Reload or close every older extension window before starting this version.`
+          );
+        }
         throw new Error(
           `Port ${gatewayPort} is busy, but no compatible VS Code LSP MCP Bridge gateway credentials were found in the connection file.`
         );
@@ -760,15 +1012,17 @@ export class BridgeHttpServer {
         port: gatewayPort,
         token: gatewayToken,
         registrationToken,
-        workspaceFolders: vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath) ?? [],
-        workspaceFolderUris: vscode.workspace.workspaceFolders?.map(folder => folder.uri.toString()) ?? [],
+        ...this.currentWorkspaceFolderValues(),
         createdAt: new Date().toISOString()
       };
 
       await this.verifyGatewayIdentity();
       await this.refreshGatewayRegistration(true);
-      await this.writeConnectionFile();
+      await this.storeGatewayCredentials(gatewayToken, registrationToken);
       this.startRegistrationHeartbeat();
+      this.registrationFailureCount = 0;
+      this.recoveryGatewayPort = undefined;
+      this.clearRecoveryTimer();
       showStatusNotification(
         `VS Code LSP MCP Bridge registered this workspace with the external-client gateway at http://${host}:${gatewayPort}/mcp.`
       );
@@ -776,6 +1030,37 @@ export class BridgeHttpServer {
       await this.resetAfterFailedStart();
       throw error;
     }
+  }
+
+  private async tryUsePublishedGateway(connection: BridgeConnectionInfo): Promise<boolean> {
+    this.gatewayEndpoint = {
+      host: connection.host,
+      port: connection.port,
+      registrationToken: connection.registrationToken
+    };
+    try {
+      await this.verifyGatewayIdentity();
+      return true;
+    } catch {
+      this.gatewayEndpoint = undefined;
+      return false;
+    }
+  }
+
+  private async waitForGatewayConnection(
+    host: string,
+    port: number,
+    maximumWaitMs: number
+  ): Promise<BridgeConnectionInfo | undefined> {
+    const deadline = Date.now() + maximumWaitMs;
+    do {
+      const connection = await this.readConnectionFile();
+      if (connection?.host === host && connection.port === port) {
+        return connection;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50 + Math.floor(Math.random() * 100)));
+    } while (Date.now() < deadline);
+    return undefined;
   }
 
   async useThisWorkspace(): Promise<string> {
@@ -786,7 +1071,11 @@ export class BridgeHttpServer {
     }
 
     if (this.role === "gateway") {
-      this.registerLocalWorkspace(this.connectionInfo.host, this.connectionInfo.port, this.connectionInfo.token);
+      this.registerLocalWorkspace(
+        this.connectionInfo.host,
+        this.connectionInfo.port,
+        this.connectionInfo.registrationToken
+      );
       return `VS Code LSP MCP Bridge gateway now routes external MCP client sessions to ${this.workspaceDisplayName()}.`;
     }
 
@@ -859,12 +1148,13 @@ export class BridgeHttpServer {
     this.writeJson(response, 200, { ok: true, proof });
   }
 
-  private registerLocalWorkspace(host: string, port: number, token: string, activate = true): void {
-    const registration = this.createWorkspaceRegistration(host, port, token, activate);
+  private registerLocalWorkspace(host: string, port: number, registrationToken: string, activate = true): void {
+    const registration = this.createWorkspaceRegistration(host, port, activate);
     this.registeredWorkspaces.set(registration.id, {
       ...registration,
       isLocal: true,
-      lastSeenAt: new Date().toISOString()
+      lastSeenAt: new Date().toISOString(),
+      proxyKey: deriveWorkerProxyKey(registrationToken, registration.id)
     });
     if (activate || !this.activeWorkspaceId) {
       this.activeWorkspaceId = registration.id;
@@ -872,9 +1162,12 @@ export class BridgeHttpServer {
   }
 
   private registerRemoteWorkspace(registration: WorkspaceRegistration): void {
+    const registrationToken = this.connectionInfo?.registrationToken;
     if (
+      !registrationToken ||
       !this.isValidWorkspaceRegistration(registration) ||
       registration.id === this.workspaceId ||
+      registration.port === this.actualPort ||
       this.registeredWorkspaces.get(registration.id)?.isLocal
     ) {
       throw new Error("Invalid bridge workspace registration.");
@@ -887,7 +1180,8 @@ export class BridgeHttpServer {
     this.registeredWorkspaces.set(registration.id, {
       ...registration,
       isLocal: false,
-      lastSeenAt: new Date().toISOString()
+      lastSeenAt: new Date().toISOString(),
+      proxyKey: deriveWorkerProxyKey(registrationToken, registration.id)
     });
 
     if (registration.activate || !this.activeWorkspaceId) {
@@ -952,7 +1246,6 @@ export class BridgeHttpServer {
   private createWorkspaceRegistration(
     host: string,
     port: number,
-    token: string,
     activate: boolean
   ): WorkspaceRegistration {
     return {
@@ -960,11 +1253,17 @@ export class BridgeHttpServer {
       name: this.workspaceDisplayName(),
       host,
       port,
-      token,
-      workspaceFolders: vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath) ?? [],
-      workspaceFolderUris: vscode.workspace.workspaceFolders?.map(folder => folder.uri.toString()) ?? [],
+      ...this.currentWorkspaceFolderValues(),
       startedAt: new Date().toISOString(),
       activate
+    };
+  }
+
+  private currentWorkspaceFolderValues(): Pick<BridgeConnectionInfo, "workspaceFolders" | "workspaceFolderUris"> {
+    const folders = (vscode.workspace.workspaceFolders ?? []).slice(0, maxWorkspaceFolders);
+    return {
+      workspaceFolders: folders.map(folder => folder.uri.fsPath),
+      workspaceFolderUris: folders.map(folder => folder.uri.toString())
     };
   }
 
@@ -973,11 +1272,10 @@ export class BridgeHttpServer {
   }
 
   private isValidWorkspaceRegistration(value: WorkspaceRegistration): boolean {
-    return typeof value?.id === "string" && /^[0-9a-f-]{36}$/iu.test(value.id) &&
+    return typeof value?.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value.id) &&
       typeof value.name === "string" && value.name.length > 0 && value.name.length <= 200 &&
       this.isLoopbackHost(value.host) &&
       Number.isInteger(value.port) && value.port >= 1 && value.port <= 65_535 &&
-      typeof value.token === "string" && /^[0-9a-f]{64}$/iu.test(value.token) &&
       Array.isArray(value.workspaceFolders) && value.workspaceFolders.length <= maxWorkspaceFolders &&
       value.workspaceFolders.every(folder => typeof folder === "string" && folder.length <= 32_768) &&
       Array.isArray(value.workspaceFolderUris) && value.workspaceFolderUris.length === value.workspaceFolders.length &&
@@ -1005,8 +1303,8 @@ export class BridgeHttpServer {
   }
 
   private removeSessionRoutesForWorkspace(workspaceId: string): void {
-    for (const [sessionId, routedWorkspaceId] of this.mcpSessionRoutes.entries()) {
-      if (routedWorkspaceId === workspaceId) {
+    for (const [sessionId, route] of this.mcpSessionRoutes.entries()) {
+      if (route.workspaceId === workspaceId) {
         this.mcpSessionRoutes.delete(sessionId);
       }
     }
@@ -1020,7 +1318,6 @@ export class BridgeHttpServer {
     const registration = this.createWorkspaceRegistration(
       this.gatewayEndpoint.host,
       this.actualPort,
-      this.connectionInfo?.token ?? "",
       activate
     );
 
@@ -1038,10 +1335,20 @@ export class BridgeHttpServer {
   private startRegistrationHeartbeat(): void {
     this.stopRegistrationHeartbeat();
     this.registrationTimer = setInterval(() => {
-      void this.refreshGatewayRegistration(false).catch(error => {
-        console.warn("VS Code LSP MCP Bridge gateway registration refresh failed.", error);
-        void this.promoteWorkerIfGatewayDisappeared();
-      });
+      void this.refreshGatewayRegistration(false)
+        .then(() => {
+          this.registrationFailureCount = 0;
+        })
+        .catch(error => {
+          this.registrationFailureCount += 1;
+          console.warn(
+            `VS Code LSP MCP Bridge gateway registration refresh failed (${this.registrationFailureCount}/${maxRegistrationFailures}).`,
+            error
+          );
+          if (this.registrationFailureCount >= maxRegistrationFailures) {
+            void this.promoteWorkerIfGatewayDisappeared();
+          }
+        });
     }, registrationRefreshMs);
   }
 
@@ -1053,31 +1360,68 @@ export class BridgeHttpServer {
   }
 
   private async promoteWorkerIfGatewayDisappeared(): Promise<void> {
-    if (this.role !== "worker" || this.isPromoting) {
+    if (this.role !== "worker" || this.isPromoting || !this.desiredRunning) {
       return;
     }
 
+    const generation = this.lifecycleGeneration;
     this.isPromoting = true;
+    const operation = this.promoteWorker(generation);
+    this.promotionPromise = operation;
     try {
-      const server = this.server;
-      this.server = undefined;
-      this.connectionInfo = undefined;
-      this.role = undefined;
-      this.actualPort = undefined;
-      this.gatewayEndpoint = undefined;
-      this.gatewayIdentityVerified = false;
-      this.stopRegistrationHeartbeat();
-      await this.closeMcpSessions();
-
-      if (server) {
-        await this.closeHttpServer(server).catch(() => undefined);
-      }
-
-      await this.start();
+      await operation;
     } catch (error) {
       console.warn("VS Code LSP MCP Bridge worker promotion failed.", error);
+      this.scheduleRecoveryStart(generation);
     } finally {
+      if (this.promotionPromise === operation) {
+        this.promotionPromise = undefined;
+      }
       this.isPromoting = false;
+    }
+  }
+
+  private async promoteWorker(generation: number): Promise<void> {
+    this.recoveryGatewayPort = this.gatewayEndpoint?.port;
+    const server = this.server;
+    this.server = undefined;
+    this.connectionInfo = undefined;
+    this.role = undefined;
+    this.actualPort = undefined;
+    this.gatewayEndpoint = undefined;
+    this.stopRegistrationHeartbeat();
+    await this.closeMcpSessions();
+
+    if (server) {
+      await this.closeHttpServer(server).catch(() => undefined);
+    }
+
+    if (!this.desiredRunning || generation !== this.lifecycleGeneration) {
+      return;
+    }
+    await this.startForGeneration(generation);
+  }
+
+  private scheduleRecoveryStart(generation: number): void {
+    if (this.recoveryTimer || !this.desiredRunning || generation !== this.lifecycleGeneration) {
+      return;
+    }
+    this.recoveryTimer = setTimeout(() => {
+      this.recoveryTimer = undefined;
+      if (!this.desiredRunning || generation !== this.lifecycleGeneration) {
+        return;
+      }
+      void this.startForGeneration(generation).catch(error => {
+        console.warn("VS Code LSP MCP Bridge recovery start failed.", error);
+        this.scheduleRecoveryStart(generation);
+      });
+    }, recoveryRetryMs);
+  }
+
+  private clearRecoveryTimer(): void {
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+      this.recoveryTimer = undefined;
     }
   }
 
@@ -1085,22 +1429,26 @@ export class BridgeHttpServer {
     if (!this.gatewayEndpoint) {
       throw new Error("Gateway endpoint is not initialized.");
     }
-    if (!this.gatewayIdentityVerified) {
-      await this.verifyGatewayIdentity();
-    }
-
     const payload = JSON.stringify(body);
+    const signedRequest = signBridgeRequest(this.gatewayEndpoint.registrationToken, {
+      method: "POST",
+      path: pathname,
+      body: payload
+    });
     await this.requestJson({
       host: this.gatewayEndpoint.host,
       port: this.gatewayEndpoint.port,
       path: pathname,
       method: "POST",
       headers: {
-        authorization: `Bearer ${this.gatewayEndpoint.registrationToken}`,
+        ...signedRequest.headers,
         "content-type": "application/json",
         "content-length": Buffer.byteLength(payload)
       }
-    }, payload);
+    }, payload, {
+      key: this.gatewayEndpoint.registrationToken,
+      nonce: signedRequest.nonce
+    });
   }
 
   private async verifyGatewayIdentity(): Promise<void> {
@@ -1126,7 +1474,6 @@ export class BridgeHttpServer {
     if (proofBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(proofBuffer, expectedBuffer)) {
       throw new Error("The process on the configured port did not prove that it is the expected bridge gateway.");
     }
-    this.gatewayIdentityVerified = true;
   }
 
   private async proxyRequestToWorkspace(
@@ -1139,7 +1486,6 @@ export class BridgeHttpServer {
     try {
       await this.proxyRequest(request, response, workspace, body);
     } catch (error) {
-      this.removeRegisteredWorkspace(workspace.id);
       if (response.headersSent) {
         response.destroy();
         return;
@@ -1165,9 +1511,10 @@ export class BridgeHttpServer {
     }
 
     try {
+      const validatedRequest = this.validateBridgeToolRequest(toolRequest.request);
       const toolResponse = workspace.isLocal
-        ? await this.runLocalToolRequest(toolRequest.request)
-        : await this.postToolRequestToWorkspace(workspace, toolRequest.request);
+        ? await this.runLocalToolRequest(validatedRequest)
+        : await this.postToolRequestToWorkspace(workspace, validatedRequest);
       if (toolResponse.ok) {
         this.writeJson(response, 200, {
           jsonrpc: "2.0",
@@ -1194,9 +1541,6 @@ export class BridgeHttpServer {
       });
       return true;
     } catch (error) {
-      if (!workspace.isLocal) {
-        this.removeRegisteredWorkspace(workspace.id);
-      }
       this.writeJson(response, 200, {
         jsonrpc: "2.0",
         error: {
@@ -1209,12 +1553,18 @@ export class BridgeHttpServer {
     }
   }
 
-  private async workspaceForMcpToolCall(body: unknown): Promise<RegisteredWorkspace | undefined> {
+  private async workspaceForMcpToolCall(
+    body: unknown,
+    requireUnique = false
+  ): Promise<RegisteredWorkspace | undefined> {
     const toolRequest = this.mcpToolRequestFromBody(body);
-    return toolRequest ? this.workspaceForToolRequest(toolRequest.request) : undefined;
+    return toolRequest ? this.workspaceForToolRequest(toolRequest.request, requireUnique) : undefined;
   }
 
-  private async workspaceForToolRequest(request: BridgeToolRequest): Promise<RegisteredWorkspace | undefined> {
+  private async workspaceForToolRequest(
+    request: BridgeToolRequest,
+    requireUnique = false
+  ): Promise<RegisteredWorkspace | undefined> {
     if (this.role !== "gateway") {
       return undefined;
     }
@@ -1224,26 +1574,37 @@ export class BridgeHttpServer {
       this.expireStaleWorkspaces();
       const workspaces = [...this.registeredWorkspaces.values()];
       if (path.isAbsolute(file)) {
-        return this.workspaceContainingAbsolutePath(workspaces, file);
+        return this.workspaceContainingAbsolutePath(workspaces, file, requireUnique);
+      }
+
+      const uri = this.parseToolUri(file);
+      if (uri) {
+        return uri.scheme === "file"
+          ? this.workspaceContainingAbsolutePath(workspaces, uri.fsPath, requireUnique)
+          : this.workspaceContainingUri(workspaces, uri, requireUnique);
       }
 
       const matches = [];
       for (const workspace of workspaces) {
         for (const folder of this.localWorkspaceFolders(workspace)) {
-          if (await this.pathExists(path.join(folder, file))) {
+          const candidate = path.resolve(folder, file);
+          if (this.pathContains(folder, this.normalizePathForComparison(candidate)) && await this.pathExists(candidate)) {
             matches.push(workspace);
             break;
           }
         }
       }
 
-      return this.selectWorkspaceMatch(matches);
+      return this.selectWorkspaceMatch(matches, requireUnique);
     }
 
-    return this.workspaceForSymbolQuery(request.args);
+    return this.workspaceForSymbolQuery(request.args, requireUnique);
   }
 
-  private async workspaceForSymbolQuery(args: Record<string, unknown>): Promise<RegisteredWorkspace | undefined> {
+  private async workspaceForSymbolQuery(
+    args: Record<string, unknown>,
+    requireUnique: boolean
+  ): Promise<RegisteredWorkspace | undefined> {
     const containerName = this.symbolQueryContainerName(args);
     if (!containerName) {
       return undefined;
@@ -1256,19 +1617,30 @@ export class BridgeHttpServer {
 
     this.expireStaleWorkspaces();
     const workspaces = [...this.registeredWorkspaces.values()];
+    const deadline = Date.now() + symbolRouteTimeoutMs;
     const matches = [];
     for (const workspace of workspaces) {
-      if (await this.workspaceContainsFileBaseName(workspace, leafContainerName)) {
+      if (Date.now() >= deadline) {
+        break;
+      }
+      if (await this.workspaceContainsFileBaseName(workspace, leafContainerName, deadline)) {
         matches.push(workspace);
       }
     }
 
-    return this.selectWorkspaceMatch(matches);
+    return this.selectWorkspaceMatch(matches, requireUnique);
   }
 
-  private selectWorkspaceMatch(matches: RegisteredWorkspace[]): RegisteredWorkspace | undefined {
+  private selectWorkspaceMatch(
+    matches: RegisteredWorkspace[],
+    requireUnique = false
+  ): RegisteredWorkspace | undefined {
     if (matches.length === 1) {
       return matches[0];
+    }
+
+    if (requireUnique) {
+      return undefined;
     }
 
     const activeWorkspace = this.activeWorkspace();
@@ -1279,17 +1651,17 @@ export class BridgeHttpServer {
 
   private toolFileArgument(args: Record<string, unknown>): string | undefined {
     const file = args.file;
-    return typeof file === "string" && file.trim() ? file : undefined;
+    return typeof file === "string" && file.length <= 32_768 && file.trim() ? file : undefined;
   }
 
   private symbolQueryContainerName(args: Record<string, unknown>): string | undefined {
     const explicitContainer = args.containerName;
-    if (typeof explicitContainer === "string" && explicitContainer.trim()) {
+    if (typeof explicitContainer === "string" && explicitContainer.length <= 1_000 && explicitContainer.trim()) {
       return explicitContainer.trim();
     }
 
     const query = args.query;
-    if (typeof query !== "string" || !query.trim()) {
+    if (typeof query !== "string" || query.length > 1_000 || !query.trim()) {
       return undefined;
     }
 
@@ -1299,10 +1671,14 @@ export class BridgeHttpServer {
 
   private async workspaceContainsFileBaseName(
     workspace: RegisteredWorkspace,
-    baseName: string
+    baseName: string,
+    deadline: number
   ): Promise<boolean> {
     for (const folder of this.localWorkspaceFolders(workspace)) {
-      if (await this.folderContainsFileBaseName(folder, baseName)) {
+      if (Date.now() >= deadline) {
+        return false;
+      }
+      if (await this.folderContainsFileBaseName(folder, baseName, deadline)) {
         return true;
       }
     }
@@ -1310,12 +1686,12 @@ export class BridgeHttpServer {
     return false;
   }
 
-  private async folderContainsFileBaseName(folder: string, baseName: string): Promise<boolean> {
+  private async folderContainsFileBaseName(folder: string, baseName: string, deadline: number): Promise<boolean> {
     const expectedPrefix = `${baseName.toLowerCase()}.`;
     const pending = [folder];
     let visited = 0;
 
-    while (pending.length > 0 && visited < symbolRouteMaxEntriesPerFolder) {
+    while (pending.length > 0 && visited < symbolRouteMaxEntriesPerFolder && Date.now() < deadline) {
       const current = pending.pop();
       if (!current) {
         continue;
@@ -1323,7 +1699,11 @@ export class BridgeHttpServer {
 
       let entries;
       try {
-        entries = await fs.readdir(current, { withFileTypes: true });
+        entries = await this.withTimeout(
+          fs.readdir(current, { withFileTypes: true }),
+          Math.max(1, deadline - Date.now()),
+          "Symbol routing timed out."
+        );
       } catch {
         continue;
       }
@@ -1348,21 +1728,57 @@ export class BridgeHttpServer {
 
   private workspaceContainingAbsolutePath(
     workspaces: RegisteredWorkspace[],
-    file: string
+    file: string,
+    requireUnique: boolean
   ): RegisteredWorkspace | undefined {
     const normalizedFile = this.normalizePathForComparison(file);
     const matches = workspaces.filter(workspace =>
-      workspace.workspaceFolders.some(folder => this.pathContains(folder, normalizedFile))
+      workspace.workspaceFolders.some((folder, index) => {
+        try {
+          return vscode.Uri.parse(workspace.workspaceFolderUris[index] ?? "", true).scheme === "file"
+            && this.pathContains(folder, normalizedFile);
+        } catch {
+          return false;
+        }
+      })
     );
+    return this.selectWorkspaceMatch(matches, requireUnique);
+  }
 
-    if (matches.length === 1) {
-      return matches[0];
+  private workspaceContainingUri(
+    workspaces: RegisteredWorkspace[],
+    file: vscode.Uri,
+    requireUnique: boolean
+  ): RegisteredWorkspace | undefined {
+    const matches = workspaces.filter(workspace => workspace.workspaceFolderUris.some(value => {
+      try {
+        const folder = vscode.Uri.parse(value, true);
+        if (folder.scheme.toLowerCase() !== file.scheme.toLowerCase() ||
+          folder.authority.toLowerCase() !== file.authority.toLowerCase()) {
+          return false;
+        }
+
+        const folderPath = folder.path.endsWith("/") ? folder.path : `${folder.path}/`;
+        return file.path === folder.path || file.path.startsWith(folderPath);
+      } catch {
+        return false;
+      }
+    }));
+
+    return this.selectWorkspaceMatch(matches, requireUnique);
+  }
+
+  private parseToolUri(value: string): vscode.Uri | undefined {
+    if (!/^[a-z][a-z0-9+.-]*:/iu.test(value) || /^[a-z]:[\\/]/iu.test(value)) {
+      return undefined;
     }
 
-    const activeWorkspace = this.activeWorkspace();
-    return activeWorkspace && matches.some(workspace => workspace.id === activeWorkspace.id)
-      ? activeWorkspace
-      : undefined;
+    try {
+      const uri = vscode.Uri.parse(value, true);
+      return uri.scheme ? uri : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private pathContains(folder: string, normalizedFile: string): boolean {
@@ -1399,6 +1815,22 @@ export class BridgeHttpServer {
     }
   }
 
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        })
+      ]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
+  }
+
   private mcpToolRequestFromBody(body: unknown): { id: string | number | null | undefined; request: BridgeToolRequest } | undefined {
     if (!this.isJsonObject(body)) {
       return undefined;
@@ -1425,11 +1857,28 @@ export class BridgeHttpServer {
     };
   }
 
+  private validateBridgeToolRequest(body: unknown): BridgeToolRequest {
+    if (!this.isJsonObject(body) || typeof body.name !== "string" || body.name.length > 100 ||
+      (body.args !== undefined && !this.isJsonObject(body.args))) {
+      throw new InvalidBridgeRequestError("Expected a language tool name and an object of arguments.");
+    }
+    try {
+      return { name: body.name, args: validateLanguageToolArgs(body.name, body.args ?? {}) };
+    } catch (error) {
+      throw new InvalidBridgeRequestError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private async postToolRequestToWorkspace(
     workspace: RegisteredWorkspace,
     body: BridgeToolRequest
   ): Promise<BridgeToolResponse> {
     const payload = JSON.stringify(body);
+    const signedRequest = signBridgeRequest(workspace.proxyKey, {
+      method: "POST",
+      path: "/tool",
+      body: payload
+    });
     return await new Promise<BridgeToolResponse>((resolve, reject) => {
       const request = http.request(
         {
@@ -1438,12 +1887,23 @@ export class BridgeHttpServer {
           path: "/tool",
           method: "POST",
           headers: {
-            authorization: `Bearer ${workspace.token}`,
+            ...signedRequest.headers,
             "content-type": "application/json",
             "content-length": Buffer.byteLength(payload)
           }
         },
         response => {
+          if (!verifyBridgeResponseProof(
+            workspace.proxyKey,
+            signedRequest.nonce,
+            response.statusCode ?? 500,
+            this.firstHeaderValue(response.headers[bridgeAuthHeaders.responseProof])
+          )) {
+            response.resume();
+            reject(new Error("The workspace bridge did not authenticate its response."));
+            return;
+          }
+
           const chunks: Buffer[] = [];
           let byteLength = 0;
           response.on("data", chunk => {
@@ -1472,9 +1932,6 @@ export class BridgeHttpServer {
       );
 
       request.on("error", reject);
-      request.setTimeout(15_000, () => {
-        request.destroy(new Error("Timed out while proxying tool call to workspace bridge."));
-      });
       request.write(payload);
       request.end();
     });
@@ -1498,16 +1955,33 @@ export class BridgeHttpServer {
     workspace: RegisteredWorkspace,
     body: unknown
   ): Promise<void> {
-    const method = request.method ?? "GET";
+    const method = (request.method ?? "GET").toUpperCase();
     const sessionId = this.getHeader(request, "mcp-session-id");
+    const protocolVersion = this.getHeader(request, "mcp-protocol-version");
+    const lastEventId = this.getHeader(request, "last-event-id");
     const payload = body === undefined ? undefined : JSON.stringify(body);
+    const requestPath = request.url ?? "/mcp";
+    const signedRequest = signBridgeRequest(workspace.proxyKey, {
+      method,
+      path: requestPath,
+      body: payload,
+      sessionId,
+      protocolVersion,
+      lastEventId
+    });
     const headers: http.OutgoingHttpHeaders = {
-      authorization: `Bearer ${workspace.token}`,
+      ...signedRequest.headers,
       accept: request.headers.accept ?? "application/json, text/event-stream"
     };
 
     if (sessionId) {
       headers["mcp-session-id"] = sessionId;
+    }
+    if (protocolVersion) {
+      headers["mcp-protocol-version"] = protocolVersion;
+    }
+    if (lastEventId) {
+      headers["last-event-id"] = lastEventId;
     }
 
     if (payload !== undefined) {
@@ -1520,14 +1994,27 @@ export class BridgeHttpServer {
         {
           host: workspace.host,
           port: workspace.port,
-          path: request.url ?? "/mcp",
+          path: requestPath,
           method,
           headers
         },
         proxyResponse => {
+          if (!verifyBridgeResponseProof(
+            workspace.proxyKey,
+            signedRequest.nonce,
+            proxyResponse.statusCode ?? 500,
+            this.firstHeaderValue(proxyResponse.headers[bridgeAuthHeaders.responseProof])
+          )) {
+            proxyResponse.resume();
+            reject(new Error("The workspace bridge did not authenticate its response."));
+            return;
+          }
+
           const proxiedSessionId = this.firstHeaderValue(proxyResponse.headers["mcp-session-id"]);
-          if (proxiedSessionId) {
-            this.setMcpSessionRoute(proxiedSessionId, workspace.id);
+          if (proxiedSessionId && !this.setMcpSessionRoute(proxiedSessionId, workspace.id)) {
+            proxyResponse.resume();
+            reject(new Error("The gateway MCP session limit was reached during initialization."));
+            return;
           }
 
           response.writeHead(proxyResponse.statusCode ?? 502, this.outgoingHeaders(proxyResponse.headers));
@@ -1538,11 +2025,6 @@ export class BridgeHttpServer {
       );
 
       proxyRequest.on("error", reject);
-      if (method.toUpperCase() !== "GET") {
-        proxyRequest.setTimeout(15_000, () => {
-          proxyRequest.destroy(new Error("Timed out while proxying to workspace bridge."));
-        });
-      }
 
       if (payload !== undefined) {
         proxyRequest.write(payload);
@@ -1551,9 +2033,24 @@ export class BridgeHttpServer {
     });
   }
 
-  private async requestJson(options: http.RequestOptions, payload: string): Promise<unknown> {
+  private async requestJson(
+    options: http.RequestOptions,
+    payload: string,
+    expectedResponse?: { key: string; nonce: string }
+  ): Promise<unknown> {
     return await new Promise<unknown>((resolve, reject) => {
       const request = http.request(options, response => {
+        if (expectedResponse && !verifyBridgeResponseProof(
+          expectedResponse.key,
+          expectedResponse.nonce,
+          response.statusCode ?? 500,
+          this.firstHeaderValue(response.headers[bridgeAuthHeaders.responseProof])
+        )) {
+          response.resume();
+          reject(new Error("The process on the gateway port did not authenticate its response."));
+          return;
+        }
+
         const chunks: Buffer[] = [];
         let byteLength = 0;
         response.on("data", chunk => {
@@ -1589,14 +2086,20 @@ export class BridgeHttpServer {
     });
   }
 
-  private async readConnectionFile(): Promise<BridgeConnectionInfo | undefined> {
+  private async readConnectionFile(includeLegacy = false): Promise<BridgeConnectionInfo | undefined> {
     if (!this.connectionFile) {
       return undefined;
     }
 
     try {
+      const info = await fs.lstat(this.connectionFile);
+      if (info.isSymbolicLink() || !info.isFile() || info.size > 1_048_576) {
+        return undefined;
+      }
       const value = JSON.parse(await fs.readFile(this.connectionFile, "utf8")) as Partial<BridgeConnectionInfo>;
-      return value.version === BRIDGE_VERSION && this.isLoopbackHost(value.host) &&
+      const supportedVersion = value.version === BRIDGE_VERSION ||
+        (includeLegacy && value.version === LEGACY_BRIDGE_VERSION);
+      return supportedVersion && this.isLoopbackHost(value.host) &&
         Number.isInteger(value.port) && (value.port ?? 0) > 0 && (value.port ?? 0) <= 65_535 &&
         typeof value.token === "string" && /^[0-9a-f]{64}$/iu.test(value.token) &&
         typeof value.registrationToken === "string" && /^[0-9a-f]{64}$/iu.test(value.registrationToken)
@@ -1610,7 +2113,7 @@ export class BridgeHttpServer {
   private outgoingHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
     const outgoing: http.OutgoingHttpHeaders = {};
     for (const [key, value] of Object.entries(headers)) {
-      if (value !== undefined) {
+      if (value !== undefined && !internalBridgeHeaderNames.has(key.toLowerCase())) {
         outgoing[key] = value;
       }
     }
@@ -1622,16 +2125,22 @@ export class BridgeHttpServer {
     return Array.isArray(value) ? value[0] : value;
   }
 
-  private setMcpSessionRoute(sessionId: string, workspaceId: string): void {
-    this.mcpSessionRoutes.delete(sessionId);
-    while (this.mcpSessionRoutes.size >= maxMcpSessionRoutes) {
-      const oldestSessionId = this.mcpSessionRoutes.keys().next().value as string | undefined;
-      if (!oldestSessionId) {
-        break;
-      }
-      this.mcpSessionRoutes.delete(oldestSessionId);
+  private setMcpSessionRoute(sessionId: string, workspaceId: string): boolean {
+    this.expireIdleMcpSessionRoutes();
+    if (!this.mcpSessionRoutes.has(sessionId) && this.mcpSessionRoutes.size >= maxMcpSessionRoutes) {
+      return false;
     }
-    this.mcpSessionRoutes.set(sessionId, workspaceId);
+    this.mcpSessionRoutes.set(sessionId, { workspaceId, lastSeenAt: Date.now() });
+    return true;
+  }
+
+  private expireIdleMcpSessionRoutes(): void {
+    const cutoff = Date.now() - mcpSessionIdleMs;
+    for (const [sessionId, route] of this.mcpSessionRoutes) {
+      if (route.lastSeenAt < cutoff) {
+        this.mcpSessionRoutes.delete(sessionId);
+      }
+    }
   }
 
   private isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -1647,10 +2156,11 @@ export class BridgeHttpServer {
     this.workspaceId = undefined;
     this.actualPort = undefined;
     this.gatewayEndpoint = undefined;
-    this.gatewayIdentityVerified = false;
     this.activeWorkspaceId = undefined;
     this.registeredWorkspaces.clear();
     this.mcpSessionRoutes.clear();
+    this.signedRequestNonces.clear();
+    this.signedBodyHashes = new WeakMap<http.IncomingMessage, string>();
 
     if (server?.listening) {
       await this.closeHttpServer(server).catch(() => undefined);
@@ -1752,16 +2262,26 @@ export class BridgeHttpServer {
     return token;
   }
 
+  private async storeGatewayCredentials(token: string, registrationToken: string): Promise<void> {
+    await Promise.all([
+      this.context.secrets.store("bridgeToken", token),
+      this.context.secrets.store("gatewayRegistrationToken", registrationToken)
+    ]);
+  }
+
   private get allowWrites(): boolean {
     return getWriteToolsEnabled();
   }
 
   private async closeMcpSessions(): Promise<void> {
-    const sessions = [...this.mcpSessions.values()];
+    const sessions = [...this.mcpSessions.entries()];
     this.mcpSessions.clear();
+    for (const [sessionId] of sessions) {
+      this.mcpSessionRoutes.delete(sessionId);
+    }
 
     await Promise.allSettled(
-      sessions.map(async session => {
+      sessions.map(async ([, session]) => {
         await session.server.close();
       })
     );
@@ -1772,6 +2292,7 @@ export class BridgeHttpServer {
     const expired = [...this.mcpSessions.entries()].filter(([, session]) => session.lastSeenAt < cutoff);
     for (const [sessionId, session] of expired) {
       this.mcpSessions.delete(sessionId);
+      this.mcpSessionRoutes.delete(sessionId);
       await session.server.close().catch(() => undefined);
     }
   }

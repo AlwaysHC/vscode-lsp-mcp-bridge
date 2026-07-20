@@ -11,6 +11,10 @@
     "rootDir": "src",
     "sourceMap": true,
     "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
@@ -19,4 +23,3 @@
     "src"
   ]
 }
-

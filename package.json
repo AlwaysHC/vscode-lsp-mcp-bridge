@@ -2,7 +2,7 @@
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "GA - VS Code LSP MCP Bridge",
   "description": "GA - Expose VS Code language intelligence as a local MCP server for AI coding tools. Made by Georgiana Alba (GA).",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "publisher": "georgiana-alba",
   "author": "Georgiana Alba",
@@ -48,7 +48,7 @@
     "vscode"
   ],
   "engines": {
-    "vscode": "^1.100.0"
+    "vscode": "^1.102.0"
   },
   "extensionKind": [
     "ui"
@@ -140,7 +140,7 @@
           {
             "id": "vscode-lsp-mcp-bridge.enableWrites",
             "title": "GA - Keep writes explicit",
-            "description": "GA - Read-only tools work by default. Write tools stay disabled until `vscodeLspMcpBridge.enableWriteTools` is enabled, and every write still asks for a VS Code approval before applying edits."
+            "description": "GA - Read-only tools work by default. Validated formatting/completion writes and explicit commands remain disabled until `vscodeLspMcpBridge.enableWriteTools` is enabled, and every mutation still requires VS Code approval."
           }
         ]
       }
@@ -178,7 +178,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "description": "GA - Enable MCP tools that can apply workspace edits, such as code actions, rename, and formatting. Each write still requires a VS Code approval prompt."
+          "description": "GA - Enable validated formatting/completion edits and explicitly requested provider commands. Every mutation still requires VS Code approval; generic provider WorkspaceEdit results remain preview-only."
         },
         "vscodeLspMcpBridge.notificationDurationMs": {
           "type": "number",
@@ -196,8 +196,9 @@
     }
   },
   "scripts": {
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "clean": "node -e \"for (const path of ['dist','.test-dist']) require('node:fs').rmSync(path,{recursive:true,force:true})\"",
     "typecheck": "tsc -p ./ --noEmit",
+    "test": "esbuild tests/languageToolCore.test.ts --bundle --platform=node --format=esm --outfile=.test-dist/languageToolCore.test.js && node --test .test-dist/languageToolCore.test.js",
     "bundle": "esbuild src/extension.ts --bundle --platform=node --format=esm --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap",
     "compile": "npm run clean && npm run typecheck && npm run bundle",
     "watch": "esbuild src/extension.ts --bundle --platform=node --format=esm --target=node20 --external:vscode --outfile=dist/extension.js --sourcemap --watch",
@@ -211,7 +212,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
-    "@types/vscode": "^1.100.0",
+    "@types/vscode": "1.102.0",
     "@vscode/vsce": "^3.4.0",
     "esbuild": "^0.28.1",
     "typescript": "^5.8.0"

@@ -25,7 +25,7 @@ Use `workspace_symbols` or `document_symbols` to disambiguate names, or when you
 
 Do not use text search as a cross-check unless the user asks for text search or the language provider fails. State any fallback clearly.
 
-`semantic_navigation_guide` returns this routing guidance as a tool result for clients that do not strongly surface MCP server instructions.
+`semantic_navigation_guide` returns this routing guidance as a tool result for clients that do not strongly surface MCP server instructions. `language_capabilities` reports the public VS Code command surface used by the bridge and identifies features that stable consumer APIs cannot query.
 
 ## Position Tools
 
@@ -48,6 +48,7 @@ Tools:
 - `go_to_type_definition`
 - `hover`
 - `document_highlights`
+- `symbol_context`
 - `call_hierarchy`
 - `type_hierarchy`
 - `selection_ranges`
@@ -76,6 +77,7 @@ Tools:
 - `find_callees_for_symbol`
 - `find_references_for_symbol`
 - `find_definition_for_symbol`
+- `symbol_context_for_symbol`
 - `workspace_symbols`
 - `call_hierarchy_for_symbol`
 - `type_hierarchy_for_symbol`
@@ -121,27 +123,37 @@ Tools:
 - `format_document`
 - `format_range`
 
+`diagnostics` can filter by severity, tag, source, code, or message and can wait for a bounded quiet period. Hierarchy tools accept bounded depth/node/edge limits and return graph roots, opaque node IDs, nodes, edges, errors, and truncation metadata.
+
+`completion` returns rich, bounded item metadata. Applicable plain-text items include short-lived `completionId` values; snippets, truncated edit sets, and provider commands are preview-only. Use `apply_completion` with the same file anchor to request a validated application tied to the same open document instance and version.
+
+Provider locations outside the workspace never expose their raw URI. Eligible provider-backed documents receive an opaque `virtualDocumentRef`; `read_virtual_document` requires that reference, a workspace file routing anchor, a first-use modal approval, and bounded line/character limits.
+
 Range fields are optional for `inlay_hints`, `code_actions`, and `inline_values`; omitting them means the whole document.
 
 ## Write Tools
 
-Write tools preview by default where practical. Applying edits requires both the global setting:
+Validated formatting/completion writes and provider-command execution require both the global setting:
 
 ```json
 "vscodeLspMcpBridge.enableWriteTools": true
 ```
 
-and a per-operation VS Code modal approval. The approval dialog shows the MCP tool name, operation, selected action or command when present, edit count, and affected files reported by the language provider.
+and a per-operation VS Code modal approval. Text edits are confined to canonical workspace paths, insertion and replacement spans are bounded, overlaps are rejected, and approval is tied to the unchanged document instance and version. Provider commands require a separate warning because their effects cannot be previewed or workspace-confined.
+
+Generic provider `WorkspaceEdit` values are preview-only. The stable VS Code API exposes plain text entries but cannot enumerate hidden create/delete/rename, notebook, or snippet operations; applying only the visible subset could corrupt a refactor.
 
 Write-capable tools:
 
 - `apply_code_action`
 - `organize_imports`
 - `fix_all`
+- `apply_completion`
 - `format_document`
 - `format_range`
 - `format_on_type`
-- `rename_symbol`
+
+`apply_code_action`, `organize_imports`, and `fix_all` can execute only command-only actions when `executeCommand: true` is explicitly supplied and the separate command warning is approved. Edit-based actions remain previews. `rename_symbol` is retained for compatibility but safely refuses `apply: true`; use `preview_rename` or omit `apply`, review the result, and perform the rename in VS Code.
 
 Examples:
 
@@ -167,7 +179,7 @@ Examples:
 {
   "file": "path.cs",
   "actionIndex": 1,
-  "apply": true
+  "executeCommand": true
 }
 ```
 
@@ -191,11 +203,11 @@ Full call hierarchy by symbol name:
 }
 ```
 
-Preview and apply a quick fix:
+Inspect a quick fix:
 
 1. Call `code_actions` with a file and range.
 2. Inspect `actionIndex`, `title`, `kind`, and `edit`.
-3. Call `apply_code_action` with the selected `actionIndex` or `title`.
+3. Edit-based actions remain preview-only. For a command-only action, call `apply_code_action` with the selected `actionIndex` or exact `title` and `executeCommand: true`, then approve the separate VS Code warning.
 
 Inspect semantic classification:
 

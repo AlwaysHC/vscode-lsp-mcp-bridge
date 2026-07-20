@@ -14,7 +14,7 @@ Default external-client gateway endpoint:
 http://127.0.0.1:36521/mcp
 ```
 
-Keep this endpoint in external MCP client configs. When several VS Code windows are open, one bridge owns this stable gateway port and the other windows register behind it. Run `LSP MCP Bridge: Route Gateway To This Workspace` only when you want new external-client sessions to target a specific VS Code window.
+Keep this endpoint in external MCP client configs. When several VS Code windows are open, one bridge owns this stable gateway port and the other windows register behind it. Run `LSP MCP Bridge: Route Gateway To This Workspace` only when you want new external-client sessions to target a specific window. Established sessions remain pinned to the window where they initialized.
 
 The token is generated locally and stored in VS Code SecretStorage. Treat copied snippets as sensitive.
 
@@ -166,7 +166,7 @@ Using the vscode_lsp find_callers_for_symbol tool, show the incoming calls for M
 - VS Code must be running with the target workspace open.
 - The workspace must be trusted.
 - The relevant language extension must finish loading before semantic results are complete.
-- If the auto-registered VS Code MCP server does not appear, reload VS Code and confirm you are running VS Code `1.100.0` or newer.
+- If the auto-registered VS Code MCP server does not appear, reload VS Code and confirm you are running VS Code `1.102.0` or newer.
 - Keep the MCP endpoint on `127.0.0.1` unless you understand the security implications.
 - VS Code/GitHub Copilot auto-registration follows the current VS Code window automatically.
 - If several VS Code windows are open and an external client uses the copied gateway config, run `LSP MCP Bridge: Route Gateway To This Workspace` in the window you want new external-client sessions to inspect.
