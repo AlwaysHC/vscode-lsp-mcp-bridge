@@ -2,7 +2,7 @@
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "GA - VS Code LSP MCP Bridge",
   "description": "GA - Expose VS Code language intelligence as a local MCP server for AI coding tools. Made by Georgiana Alba (GA).",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "publisher": "georgiana-alba",
   "author": "Georgiana Alba",

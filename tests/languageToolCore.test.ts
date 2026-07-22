@@ -11,6 +11,10 @@ import {
   validateLanguageToolArgs
 } from "../src/mcp/toolDefinitions.ts";
 import {
+  languageMcpServerInstructions,
+  toolSelectionInstructions
+} from "../src/mcp/serverInstructions.ts";
+import {
   bridgeAuthHeaders,
   createBridgeResponseProof,
   deriveWorkerProxyKey,
@@ -23,6 +27,15 @@ import {
 const bridgeKey = "11".repeat(32);
 const bridgeTimestamp = 1_750_000_000_000;
 const bridgeNonce = "22".repeat(32);
+
+test("MCP instructions make proactive tool selection explicit in Codex's decision prefix", () => {
+  assert.ok(toolSelectionInstructions.length <= 512);
+  assert.ok(toolSelectionInstructions.includes("Proactively use"));
+  assert.ok(toolSelectionInstructions.includes("user need not mention LSP"));
+  assert.ok(toolSelectionInstructions.includes("semantic_navigation_guide"));
+  assert.ok(toolSelectionInstructions.includes("text search only after provider failure"));
+  assert.ok(languageMcpServerInstructions.startsWith(toolSelectionInstructions));
+});
 
 test("bounded graph traversal deduplicates cycles and respects depth", async () => {
   const graph = new Map([

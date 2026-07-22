@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 - 2026-07-22
+
+- Makes proactive LSP tool use explicit in the first 512 characters of the MCP server instructions so Codex does not require users to say "use LSP".
+
 ## 0.4.0 - 2026-07-20
 
 - Splits the language-tool dispatcher into focused diagnostics, symbols, hierarchy, document-feature, completion, virtual-document, and write-safety modules.

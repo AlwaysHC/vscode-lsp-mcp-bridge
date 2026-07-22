@@ -98,7 +98,7 @@ const baseToolDefinitions: ToolDefinition[] = [
   {
     name: "semantic_navigation_guide",
     title: "Semantic Navigation Guide",
-    description: "Read this when deciding whether to use vscode_lsp tools. It maps user phrases like incoming calls, callers, references, definitions, implementations, and type hierarchy to the right semantic tool, and explains when rg/grep is only a fallback.",
+    description: "Call this proactively when starting a coding task or when deciding which vscode_lsp tool applies; the user need not mention LSP. It maps requests for callers, references, definitions, implementations, diagnostics, and hierarchies to semantic tools, with text search only as a fallback.",
     inputSchema: {},
     readOnly: true,
     openWorld: false

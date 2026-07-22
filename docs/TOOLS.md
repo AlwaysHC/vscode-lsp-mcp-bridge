@@ -10,7 +10,7 @@ This does not expose private language-server process internals or every possible
 
 ## Tool Choice Guidance
 
-Use these tools as the primary source for semantic code navigation in the active VS Code workspace.
+Clients should use these tools proactively whenever they apply to a coding task; the user does not need to mention LSP or the bridge. The server advertises this rule in the decision-critical first 512 characters of its MCP instructions for clients such as Codex.
 
 For references, definitions, implementations, callers/callees, type hierarchy, diagnostics, hover, rename, code actions, formatting, and symbol lookup, use this MCP server before shell commands, `rg`/`grep`, or raw file search.
 
