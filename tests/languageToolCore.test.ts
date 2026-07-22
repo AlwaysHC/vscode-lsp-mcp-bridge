@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  codexGuidanceBlock,
+  removeCodexGuidance,
+  upsertCodexGuidance
+} from "../src/codexGuidance.ts";
+import {
   boundedInteger,
   normalizeComparableCode,
   traverseBoundedGraph
@@ -30,11 +35,25 @@ const bridgeNonce = "22".repeat(32);
 
 test("MCP instructions make proactive tool selection explicit in Codex's decision prefix", () => {
   assert.ok(toolSelectionInstructions.length <= 512);
-  assert.ok(toolSelectionInstructions.includes("Proactively use"));
+  assert.ok(toolSelectionInstructions.includes("as the first tool action"));
   assert.ok(toolSelectionInstructions.includes("user need not mention LSP"));
   assert.ok(toolSelectionInstructions.includes("semantic_navigation_guide"));
-  assert.ok(toolSelectionInstructions.includes("text search only after provider failure"));
+  assert.ok(toolSelectionInstructions.includes("text search only when the provider fails"));
   assert.ok(languageMcpServerInstructions.startsWith(toolSelectionInstructions));
+});
+
+test("Codex guidance installation is idempotent and preserves user content", () => {
+  const original = "# Personal guidance\r\n\r\nKeep this line.\r\n";
+  const installed = upsertCodexGuidance(original);
+
+  assert.ok(installed.startsWith("# Personal guidance\r\n\r\nKeep this line.\r\n"));
+  assert.ok(installed.includes(codexGuidanceBlock.replaceAll("\n", "\r\n")));
+  assert.equal(upsertCodexGuidance(installed), installed);
+  assert.equal(removeCodexGuidance(installed), original.trimEnd());
+});
+
+test("Codex guidance removal ignores unmanaged content", () => {
+  assert.equal(removeCodexGuidance("Unmanaged\n"), "Unmanaged\n");
 });
 
 test("bounded graph traversal deduplicates cycles and respects depth", async () => {

@@ -2,7 +2,7 @@ import { brandAttribution } from "../branding.js";
 
 // Codex uses the first 512 characters while deciding whether to expose/use an MCP
 // server. Keep this prefix self-contained and focused on proactive tool selection.
-export const toolSelectionInstructions = "Proactively use these VS Code language tools when they apply to a coding task; the user need not mention LSP. Use them before shell commands, file reads, or text search for semantic code understanding, navigation, diagnostics, review, and edits. If uncertain, call semantic_navigation_guide first. Prefer them for symbols, definitions, implementations, references, callers/callees, hover, diagnostics, rename, code actions, and formatting. Use text search only after provider failure or explicit user request.";
+export const toolSelectionInstructions = "Before any shell command, file read, or text search in a coding task, call semantic_navigation_guide as the first tool action; the user need not mention LSP. Then use the matching VS Code semantic tool for code understanding, navigation, diagnostics, review, and edits. This includes symbols, definitions, implementations, references, callers/callees, hover, diagnostics, rename, code actions, and formatting. Use text search only when the provider fails or the user explicitly requests textual search.";
 
 export const languageMcpServerInstructions = [
   toolSelectionInstructions,

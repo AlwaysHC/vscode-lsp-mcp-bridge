@@ -2,6 +2,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { BridgeHttpServer } from "./bridgeHttpServer.js";
+import { codexGuidanceBlock, removeCodexGuidance, upsertCodexGuidance } from "./codexGuidance.js";
 import { getBridgeConfiguration, getWriteToolsEnabled } from "./configuration.js";
 import { showStatusNotification } from "./notifications.js";
 
@@ -11,6 +12,8 @@ let updateStatusBarQuickAccessTooltip: (() => void) | undefined;
 const mcpServerDefinitionProviderId = "vscode-lsp-mcp-bridge.provider";
 const copyMcpConfigAction = "Copy MCP Config";
 const enableWriteToolsAction = "Enable Write Tools";
+const installCodexGuidanceAction = "Install Guidance";
+const removeCodexGuidanceAction = "Remove Guidance";
 
 type ClientConfigId = "codex" | "vscode-copilot" | "claude-code" | "generic";
 
@@ -71,6 +74,16 @@ const bridgeQuickAccessOptions: BridgeQuickAccessOption[] = [
     label: "$(go-to-file) Open MCP Client Config File",
     description: "Open a common LSP MCP client config file and copy the matching snippet.",
     command: "vscode-lsp-mcp-bridge.openClientConfig"
+  },
+  {
+    label: "$(sparkle) Install Codex Guidance",
+    description: "Require Codex to try semantic LSP tools before text search.",
+    command: "vscode-lsp-mcp-bridge.installCodexGuidance"
+  },
+  {
+    label: "$(trash) Remove Codex Guidance",
+    description: "Remove only the guidance block managed by this extension.",
+    command: "vscode-lsp-mcp-bridge.removeCodexGuidance"
   }
 ];
 
@@ -258,6 +271,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       await vscode.env.clipboard.writeText(snippet);
       showStatusNotification(`${selected.label} MCP config copied to clipboard.`);
+      if (selected.id === "codex") {
+        await installCodexGuidance();
+      }
     }),
     vscode.commands.registerCommand("vscode-lsp-mcp-bridge.openClientConfig", async () => {
       await bridge?.start();
@@ -289,7 +305,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const snippet = bridge.getClientConfigSnippet(selected.snippetClientId);
       await vscode.env.clipboard.writeText(snippet);
       showStatusNotification(`${selected.label} opened. MCP config snippet copied to clipboard.`);
-    })
+      if (selected.snippetClientId === "codex") {
+        await installCodexGuidance();
+      }
+    }),
+    vscode.commands.registerCommand("vscode-lsp-mcp-bridge.installCodexGuidance", installCodexGuidance),
+    vscode.commands.registerCommand("vscode-lsp-mcp-bridge.removeCodexGuidance", removeInstalledCodexGuidance)
   );
 
   const autoStart = getBridgeConfiguration().get<boolean>("autoStart", true);
@@ -459,4 +480,77 @@ async function openOrCreateFile(fileUri: vscode.Uri, initialContent: string, lab
   const document = await vscode.workspace.openTextDocument(fileUri);
   await vscode.window.showTextDocument(document, { preview: false });
   return true;
+}
+
+async function readTextFile(fileUri: vscode.Uri): Promise<string | undefined> {
+  try {
+    return Buffer.from(await vscode.workspace.fs.readFile(fileUri)).toString("utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+async function activeCodexGuidanceFile(): Promise<readonly [uri: vscode.Uri, content: string]> {
+  const overrideUri = homeUri(".codex", "AGENTS.override.md");
+  const overrideContent = await readTextFile(overrideUri);
+  if (overrideContent?.trim()) {
+    return [overrideUri, overrideContent];
+  }
+
+  const agentsUri = homeUri(".codex", "AGENTS.md");
+  return [agentsUri, await readTextFile(agentsUri) ?? ""];
+}
+
+async function installCodexGuidance(): Promise<void> {
+  const [fileUri, content] = await activeCodexGuidanceFile();
+  const nextContent = upsertCodexGuidance(content);
+  if (nextContent === content) {
+    showStatusNotification(`Codex LSP guidance is already installed in ${fileUri.fsPath}.`);
+    return;
+  }
+
+  const choice = await vscode.window.showInformationMessage(
+    "Install durable Codex guidance for eager LSP tool use?",
+    {
+      modal: true,
+      detail: `This adds a clearly marked block to ${fileUri.fsPath}, preserving existing content. Codex reads this file before starting work. Start a new Codex session afterward.\n\n${codexGuidanceBlock}`
+    },
+    installCodexGuidanceAction
+  );
+  if (choice !== installCodexGuidanceAction) {
+    return;
+  }
+
+  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(fileUri, ".."));
+  await vscode.workspace.fs.writeFile(fileUri, Buffer.from(nextContent, "utf8"));
+  showStatusNotification(`Codex LSP guidance installed in ${fileUri.fsPath}. Start a new Codex session.`);
+}
+
+async function removeInstalledCodexGuidance(): Promise<void> {
+  const candidates = [
+    homeUri(".codex", "AGENTS.override.md"),
+    homeUri(".codex", "AGENTS.md")
+  ] as const;
+  const files = (await Promise.all(candidates.map(async uri => [uri, await readTextFile(uri)] as const)))
+    .filter((entry): entry is readonly [vscode.Uri, string] => entry[1] !== undefined)
+    .map(([uri, content]) => [uri, content, removeCodexGuidance(content)] as const)
+    .filter(([, content, nextContent]) => content !== nextContent);
+
+  if (files.length === 0) {
+    showStatusNotification("No Codex guidance managed by LSP MCP Bridge was found.");
+    return;
+  }
+
+  const choice = await vscode.window.showInformationMessage(
+    "Remove the Codex guidance managed by LSP MCP Bridge?",
+    { modal: true, detail: files.map(([uri]) => uri.fsPath).join("\n") },
+    removeCodexGuidanceAction
+  );
+  if (choice !== removeCodexGuidanceAction) {
+    return;
+  }
+
+  await Promise.all(files.map(([uri, , nextContent]) =>
+    vscode.workspace.fs.writeFile(uri, Buffer.from(nextContent, "utf8"))));
+  showStatusNotification("Codex LSP guidance removed. Start a new Codex session.");
 }

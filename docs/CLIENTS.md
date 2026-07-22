@@ -61,6 +61,8 @@ http_headers = { Authorization = "Bearer copied-token" }
 
 Add it to `~/.codex/config.toml`, then restart Codex.
 
+MCP server instructions are advisory and cannot force tool priority. Run `GA - LSP MCP Bridge: Install Codex Guidance` to add a managed block to the active global Codex `AGENTS.md` file. The command shows the exact content and target path for approval, preserves existing instructions, and makes Codex call `semantic_navigation_guide` before locating code with `rg` or other text search. Start a new Codex session after installation. `GA - LSP MCP Bridge: Remove Codex Guidance` removes only that managed block.
+
 ## VS Code / GitHub Copilot
 
 The extension automatically registers `VS Code LSP MCP Bridge` as a VS Code MCP server definition provider. You can start, trust, enable, disable, or inspect it from VS Code's MCP UI without adding a `.vscode/mcp.json` entry. When VS Code starts the server, the extension starts the local bridge if needed and sends the current VS Code window's endpoint and bearer token in the `Authorization` header.

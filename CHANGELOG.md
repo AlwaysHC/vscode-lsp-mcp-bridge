@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3 - 2026-07-22
+
+- Adds consent-based install/remove commands for durable global Codex guidance that requires semantic LSP routing before `rg` or other text search, while preserving existing instructions.
+- Tightens the MCP decision prefix to request `semantic_navigation_guide` as the first coding-task tool action.
+
 ## 0.4.2 - 2026-07-22
 
 - Makes proactive LSP tool use explicit in the first 512 characters of the MCP server instructions so Codex does not require users to say "use LSP".

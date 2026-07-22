@@ -40,10 +40,14 @@ The bridge starts automatically by default when VS Code finishes startup. You ca
 - `GA - LSP MCP Bridge: Disable Write Tools`
 - `GA - LSP MCP Bridge: Copy MCP Client Config`
 - `GA - LSP MCP Bridge: Open MCP Client Config File`
+- `GA - LSP MCP Bridge: Install Codex Guidance`
+- `GA - LSP MCP Bridge: Remove Codex Guidance`
 
 The status-bar item opens the same quick-access menu and reports the connection state, active workspace, and whether write tools are enabled.
 
 For client-specific setup, run `GA - LSP MCP Bridge: Copy MCP Client Config` and choose the target client. To avoid hunting for common config files, run `GA - LSP MCP Bridge: Open MCP Client Config File`; it opens the selected file, creates missing files only after confirmation, and copies the matching snippet to the clipboard.
+
+For eager Codex use, run `GA - LSP MCP Bridge: Install Codex Guidance`. MCP server instructions alone are advisory; this consent-based command adds a managed block to Codex's active global `AGENTS.md`, preserving existing content, so semantic LSP routing happens before `rg` or other text search. Start a new Codex session afterward. The matching removal command removes only the managed block.
 
 When several VS Code windows are open, VS Code/GitHub Copilot auto-registration uses the current window's own bridge endpoint automatically. Final users do not need to run a workspace-selection command for that path.
 

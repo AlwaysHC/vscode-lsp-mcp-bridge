@@ -2,7 +2,7 @@
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "GA - VS Code LSP MCP Bridge",
   "description": "GA - Expose VS Code language intelligence as a local MCP server for AI coding tools. Made by Georgiana Alba (GA).",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "publisher": "georgiana-alba",
   "author": "Georgiana Alba",
@@ -109,6 +109,16 @@
         "command": "vscode-lsp-mcp-bridge.openClientConfig",
         "title": "Open MCP Client Config File",
         "category": "LSP MCP Bridge"
+      },
+      {
+        "command": "vscode-lsp-mcp-bridge.installCodexGuidance",
+        "title": "Install Codex Guidance",
+        "category": "LSP MCP Bridge"
+      },
+      {
+        "command": "vscode-lsp-mcp-bridge.removeCodexGuidance",
+        "title": "Remove Codex Guidance",
+        "category": "LSP MCP Bridge"
       }
     ],
     "walkthroughs": [
@@ -136,6 +146,11 @@
             "id": "vscode-lsp-mcp-bridge.openConfigFile",
             "title": "Open an MCP client config file",
             "description": "Open a common MCP client configuration file and copy the matching bridge snippet to the clipboard. Missing files are created only after confirmation.\n\n[Open MCP client config file](command:vscode-lsp-mcp-bridge.openClientConfig)"
+          },
+          {
+            "id": "vscode-lsp-mcp-bridge.codexGuidance",
+            "title": "Make Codex prefer semantic tools",
+            "description": "MCP instructions are advisory. Install durable global Codex guidance to require an LSP semantic lookup before text search. Existing guidance is preserved and every change requires confirmation.\n\n[Install Codex guidance](command:vscode-lsp-mcp-bridge.installCodexGuidance)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.enableWrites",
