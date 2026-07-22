@@ -2,7 +2,7 @@
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "GA - VS Code LSP MCP Bridge",
   "description": "GA - Expose VS Code language intelligence as a local MCP server for AI coding tools. Made by Georgiana Alba (GA).",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "publisher": "georgiana-alba",
   "author": "Georgiana Alba",
@@ -67,98 +67,98 @@
     "commands": [
       {
         "command": "vscode-lsp-mcp-bridge.openQuickAccess",
-        "title": "GA - LSP MCP Bridge: Open Quick Access",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Open Quick Access",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.start",
-        "title": "GA - LSP MCP Bridge: Start Server",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Start Server",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.stop",
-        "title": "GA - LSP MCP Bridge: Stop Server",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Stop Server",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.showStatus",
-        "title": "GA - LSP MCP Bridge: Show Status",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Show Status",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.useWorkspace",
-        "title": "GA - LSP MCP Bridge: Route Gateway To This Workspace",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Route Gateway To This Workspace",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.enableWriteTools",
-        "title": "GA - LSP MCP Bridge: Enable Write Tools",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Enable Write Tools",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.disableWriteTools",
-        "title": "GA - LSP MCP Bridge: Disable Write Tools",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Disable Write Tools",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.copyClientConfig",
-        "title": "GA - LSP MCP Bridge: Copy MCP Client Config",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Copy MCP Client Config",
+        "category": "LSP MCP Bridge"
       },
       {
         "command": "vscode-lsp-mcp-bridge.openClientConfig",
-        "title": "GA - LSP MCP Bridge: Open MCP Client Config File",
-        "category": "GA - LSP MCP Bridge"
+        "title": "Open MCP Client Config File",
+        "category": "LSP MCP Bridge"
       }
     ],
     "walkthroughs": [
       {
         "id": "vscode-lsp-mcp-bridge.getStarted",
-        "title": "GA - Get Started with LSP MCP Bridge",
-        "description": "GA - Made by Georgiana Alba (GA). Expose the current VS Code workspace language features to AI coding tools through MCP.",
+        "title": "Get Started with LSP MCP Bridge",
+        "description": "Expose the current VS Code workspace language features to AI coding tools through MCP.",
         "steps": [
           {
             "id": "vscode-lsp-mcp-bridge.checkStatus",
-            "title": "GA - Check the local bridge",
-            "description": "GA - Open a workspace with the language extension you want to use, then run the status command to confirm the local MCP endpoint is available.\n\n[GA - Show bridge status](command:vscode-lsp-mcp-bridge.showStatus)"
+            "title": "Check the local bridge",
+            "description": "Open a workspace with the language extension you want to use, then run the status command to confirm the local MCP endpoint is available.\n\n[Show bridge status](command:vscode-lsp-mcp-bridge.showStatus)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.copyConfig",
-            "title": "GA - Copy an MCP client config",
-            "description": "GA - Copy a ready-to-use MCP server configuration for Codex, VS Code/GitHub Copilot, Claude Code, or another HTTP MCP client.\n\n[GA - Copy MCP client config](command:vscode-lsp-mcp-bridge.copyClientConfig)"
+            "title": "Copy an MCP client config",
+            "description": "Copy a ready-to-use MCP server configuration for Codex, VS Code/GitHub Copilot, Claude Code, or another HTTP MCP client.\n\n[Copy MCP client config](command:vscode-lsp-mcp-bridge.copyClientConfig)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.useWorkspace",
-            "title": "GA - Route the gateway to this workspace",
-            "description": "GA - External MCP clients use the stable gateway endpoint. When several VS Code windows are open, route new external-client sessions to the current workspace.\n\n[GA - Route gateway to this workspace](command:vscode-lsp-mcp-bridge.useWorkspace)"
+            "title": "Route the gateway to this workspace",
+            "description": "External MCP clients use the stable gateway endpoint. When several VS Code windows are open, route new external-client sessions to the current workspace.\n\n[Route gateway to this workspace](command:vscode-lsp-mcp-bridge.useWorkspace)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.openConfigFile",
-            "title": "GA - Open an MCP client config file",
-            "description": "GA - Open a common MCP client configuration file and copy the matching bridge snippet to the clipboard. Missing files are created only after confirmation.\n\n[GA - Open MCP client config file](command:vscode-lsp-mcp-bridge.openClientConfig)"
+            "title": "Open an MCP client config file",
+            "description": "Open a common MCP client configuration file and copy the matching bridge snippet to the clipboard. Missing files are created only after confirmation.\n\n[Open MCP client config file](command:vscode-lsp-mcp-bridge.openClientConfig)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.enableWrites",
-            "title": "GA - Keep writes explicit",
-            "description": "GA - Read-only tools work by default. Validated formatting/completion writes and explicit commands remain disabled until `vscodeLspMcpBridge.enableWriteTools` is enabled, and every mutation still requires VS Code approval."
+            "title": "Keep writes explicit",
+            "description": "Read-only tools work by default. Validated formatting/completion writes and explicit commands remain disabled until `vscodeLspMcpBridge.enableWriteTools` is enabled, and every mutation still requires VS Code approval."
           }
         ]
       }
     ],
     "configuration": {
-      "title": "GA - VS Code LSP MCP Bridge — Made by Georgiana Alba",
+      "title": "VS Code LSP MCP Bridge",
       "properties": {
         "vscodeLspMcpBridge.autoStart": {
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "GA - Start the local bridge server when VS Code finishes startup."
+          "description": "Start the local bridge server when VS Code finishes startup."
         },
         "vscodeLspMcpBridge.host": {
           "type": "string",
           "default": "127.0.0.1",
           "scope": "application",
-          "description": "GA - Host for the local bridge server. Only 127.0.0.1 is accepted."
+          "description": "Host for the local bridge server. Only 127.0.0.1 is accepted."
         },
         "vscodeLspMcpBridge.port": {
           "type": "number",
@@ -166,25 +166,25 @@
           "minimum": 1024,
           "maximum": 65535,
           "scope": "application",
-          "description": "GA - Stable local gateway port for external MCP clients. VS Code/GitHub Copilot auto-registration uses the current window endpoint."
+          "description": "Stable local gateway port for external MCP clients. VS Code/GitHub Copilot auto-registration uses the current window endpoint."
         },
         "vscodeLspMcpBridge.connectionFile": {
           "type": "string",
           "default": "",
           "scope": "application",
-          "description": "GA - Optional path for the connection file. Empty uses ~/.vscode-lsp-mcp-bridge/connection.json."
+          "description": "Optional path for the connection file. Empty uses ~/.vscode-lsp-mcp-bridge/connection.json."
         },
         "vscodeLspMcpBridge.enableWriteTools": {
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "description": "GA - Enable validated formatting/completion edits and explicitly requested provider commands. Every mutation still requires VS Code approval; generic provider WorkspaceEdit results remain preview-only."
+          "description": "Enable validated formatting/completion edits and explicitly requested provider commands. Every mutation still requires VS Code approval; generic provider WorkspaceEdit results remain preview-only."
         },
         "vscodeLspMcpBridge.notificationDurationMs": {
           "type": "number",
           "default": 5000,
           "minimum": 0,
-          "description": "GA - How long extension status notifications stay visible in the status bar, in milliseconds."
+          "description": "How long extension status notifications stay visible in the status bar, in milliseconds."
         }
       }
     }
@@ -192,7 +192,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "GA - The bridge refuses to start unless the workspace is trusted."
+      "description": "The bridge refuses to start unless the workspace is trusted."
     }
   },
   "scripts": {
