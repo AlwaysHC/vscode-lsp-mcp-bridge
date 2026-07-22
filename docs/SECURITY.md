@@ -39,6 +39,8 @@ MCP clients normally do not need the connection file. Use `LSP MCP Bridge: Copy 
 
 The optional Codex guidance command modifies the active global `~/.codex/AGENTS.md` or `AGENTS.override.md` only after showing the exact target and managed content in a modal confirmation. Existing content is preserved. The removal command deletes only the marker-delimited block owned by this extension and also requires confirmation.
 
+Claude Code guidance uses the same consent and marker-delimited update model for `~/.claude/CLAUDE.md`, with a client-specific marker so it cannot remove the Codex block. Copilot guidance is packaged as a declarative VS Code `chatInstructions` contribution and does not modify user or workspace instruction files.
+
 ## Write Tools
 
 Write tools are intentionally gated by:

@@ -67,6 +67,8 @@ MCP server instructions are advisory and cannot force tool priority. Run `GA - L
 
 The extension automatically registers `VS Code LSP MCP Bridge` as a VS Code MCP server definition provider. You can start, trust, enable, disable, or inspect it from VS Code's MCP UI without adding a `.vscode/mcp.json` entry. When VS Code starts the server, the extension starts the local bridge if needed and sends the current VS Code window's endpoint and bearer token in the `Authorization` header.
 
+The extension also contributes an `applyTo: "**"` Copilot instruction file through VS Code's native `chatInstructions` extension point. Copilot receives the semantic-before-text-search guidance automatically; no user instruction file is modified.
+
 Choose `VS Code / GitHub Copilot` in the picker only if you prefer explicit MCP JSON. The copied JSON is intended for VS Code's MCP configuration file and uses the stable gateway endpoint.
 
 VS Code supports MCP configuration in:
@@ -108,6 +110,8 @@ claude mcp add --transport http vscode_lsp http://127.0.0.1:36521/mcp --header "
 ```
 
 Run it from the project you want Claude Code to configure. By default, Claude Code stores local MCP entries in `~/.claude.json` under the current project path. Add `--scope project` if you want a shared `<project>/.mcp.json` entry instead. Use `/mcp` inside Claude Code if you need to inspect or authenticate configured MCP servers.
+
+Run `GA - LSP MCP Bridge: Install Claude Code Guidance` to add a separate managed block to the user-wide `~/.claude/CLAUDE.md`. The command previews the exact content and target for approval and preserves existing instructions. The Claude Code config-copy flow offers this automatically. Start a new Claude Code session afterward. `GA - LSP MCP Bridge: Remove Claude Code Guidance` removes only the extension-managed block.
 
 Reference:
 

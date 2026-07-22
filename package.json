@@ -2,7 +2,7 @@
   "name": "vscode-lsp-mcp-bridge",
   "displayName": "GA - VS Code LSP MCP Bridge",
   "description": "GA - Expose VS Code language intelligence as a local MCP server for AI coding tools. Made by Georgiana Alba (GA).",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "type": "module",
   "publisher": "georgiana-alba",
   "author": "Georgiana Alba",
@@ -58,6 +58,11 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "chatInstructions": [
+      {
+        "path": "./instructions/vscode-lsp-mcp-bridge.instructions.md"
+      }
+    ],
     "mcpServerDefinitionProviders": [
       {
         "id": "vscode-lsp-mcp-bridge.provider",
@@ -119,6 +124,16 @@
         "command": "vscode-lsp-mcp-bridge.removeCodexGuidance",
         "title": "Remove Codex Guidance",
         "category": "LSP MCP Bridge"
+      },
+      {
+        "command": "vscode-lsp-mcp-bridge.installClaudeCodeGuidance",
+        "title": "Install Claude Code Guidance",
+        "category": "LSP MCP Bridge"
+      },
+      {
+        "command": "vscode-lsp-mcp-bridge.removeClaudeCodeGuidance",
+        "title": "Remove Claude Code Guidance",
+        "category": "LSP MCP Bridge"
       }
     ],
     "walkthroughs": [
@@ -149,8 +164,8 @@
           },
           {
             "id": "vscode-lsp-mcp-bridge.codexGuidance",
-            "title": "Make Codex prefer semantic tools",
-            "description": "MCP instructions are advisory. Install durable global Codex guidance to require an LSP semantic lookup before text search. Existing guidance is preserved and every change requires confirmation.\n\n[Install Codex guidance](command:vscode-lsp-mcp-bridge.installCodexGuidance)"
+            "title": "Make external clients prefer semantic tools",
+            "description": "Copilot guidance is bundled automatically. Install durable global guidance for Codex or Claude Code to require an LSP semantic lookup before text search. Existing guidance is preserved and every change requires confirmation.\n\n[Install Codex guidance](command:vscode-lsp-mcp-bridge.installCodexGuidance) · [Install Claude Code guidance](command:vscode-lsp-mcp-bridge.installClaudeCodeGuidance)"
           },
           {
             "id": "vscode-lsp-mcp-bridge.enableWrites",

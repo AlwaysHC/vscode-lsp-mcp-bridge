@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4 - 2026-07-22
+
+- Contributes automatic always-on semantic-tool guidance directly to VS Code Copilot through the native `chatInstructions` extension point.
+- Adds consent-based install/remove commands for user-wide Claude Code guidance in `~/.claude/CLAUDE.md` and offers installation during Claude Code setup.
+- Generalizes marker-delimited guidance updates so Codex and Claude Code content remains isolated and existing user instructions are preserved.
+
 ## 0.4.3 - 2026-07-22
 
 - Adds consent-based install/remove commands for durable global Codex guidance that requires semantic LSP routing before `rg` or other text search, while preserving existing instructions.

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  codexGuidanceBlock,
-  removeCodexGuidance,
-  upsertCodexGuidance
-} from "../src/codexGuidance.ts";
+  claudeCodeGuidance,
+  codexGuidance,
+  removeGuidance,
+  upsertGuidance
+} from "../src/agentGuidance.ts";
 import {
   boundedInteger,
   normalizeComparableCode,
@@ -42,18 +43,35 @@ test("MCP instructions make proactive tool selection explicit in Codex's decisio
   assert.ok(languageMcpServerInstructions.startsWith(toolSelectionInstructions));
 });
 
-test("Codex guidance installation is idempotent and preserves user content", () => {
+test("client guidance installation is idempotent and preserves user content", () => {
   const original = "# Personal guidance\r\n\r\nKeep this line.\r\n";
-  const installed = upsertCodexGuidance(original);
+  const installed = upsertGuidance(original, codexGuidance);
 
   assert.ok(installed.startsWith("# Personal guidance\r\n\r\nKeep this line.\r\n"));
-  assert.ok(installed.includes(codexGuidanceBlock.replaceAll("\n", "\r\n")));
-  assert.equal(upsertCodexGuidance(installed), installed);
-  assert.equal(removeCodexGuidance(installed), original.trimEnd());
+  assert.ok(installed.includes(codexGuidance.block.replaceAll("\n", "\r\n")));
+  assert.equal(upsertGuidance(installed, codexGuidance), installed);
+  assert.equal(removeGuidance(installed, codexGuidance), original.trimEnd());
 });
 
-test("Codex guidance removal ignores unmanaged content", () => {
-  assert.equal(removeCodexGuidance("Unmanaged\n"), "Unmanaged\n");
+test("managed guidance blocks remain isolated by client", () => {
+  const claudeContent = upsertGuidance("Unmanaged\n", claudeCodeGuidance);
+
+  assert.equal(removeGuidance("Unmanaged\n", codexGuidance), "Unmanaged\n");
+  assert.equal(removeGuidance(claudeContent, codexGuidance), claudeContent);
+  assert.equal(removeGuidance(claudeContent, claudeCodeGuidance), "Unmanaged");
+});
+
+test("the extension contributes automatic Copilot semantic-tool instructions", async () => {
+  const manifest = JSON.parse(await readFile("package.json", "utf8")) as {
+    contributes?: { chatInstructions?: Array<{ path?: string }> };
+  };
+  const instructionPath = manifest.contributes?.chatInstructions?.[0]?.path;
+
+  assert.equal(instructionPath, "./instructions/vscode-lsp-mcp-bridge.instructions.md");
+  const instructions = await readFile(instructionPath, "utf8");
+  assert.match(instructions, /applyTo: "\*\*"/);
+  assert.match(instructions, /semantic_navigation_guide/);
+  assert.match(instructions, /before `rg`/);
 });
 
 test("bounded graph traversal deduplicates cycles and respects depth", async () => {
